@@ -1,8 +1,9 @@
 import { Chess, type Square } from 'chess.js';
-export type PlayerId = 'one' | 'two';
+export type PlayerId = string;
 export type Player = {
     id: PlayerId;
     name: string;
+    busy: boolean;
 };
 export type Game = {
     id: string;
@@ -24,19 +25,20 @@ export type Game = {
     reason: string;
     drawOffer: PlayerId | null;
 };
+export type Score = { wins: number; losses: number; draws: number };
 export type Room = {
     me: PlayerId;
     players: Player[];
     game: Game | null;
     recent: Game[];
-    stats: Record<PlayerId, {
-        wins: number;
-        losses: number;
-        draws: number;
-    }>;
+    stats: Record<PlayerId, Score>;
+    headToHead: Record<PlayerId, Score>;
     serverNow: number;
 };
-export const opponent = (p: PlayerId): PlayerId => p === 'one' ? 'two' : 'one';
+export function opponent(player: PlayerId, game: Pick<Game, 'white' | 'black'>): PlayerId {
+    assert(player === game.white || player === game.black, 'You are not a player in this game.', 403);
+    return game.white === player ? game.black : game.white;
+}
 export class GameError extends Error {
     status: number;
     constructor(message: string, status = 400) { super(message); this.status = status; }
@@ -45,10 +47,11 @@ export function assert(ok: unknown, message: string, status = 400): asserts ok {
     throw new GameError(message, status); }
 export function replay(g: Game) { const chess = new Chess(); for (const m of g.moves)
     chess.move(m); return chess; }
-export function createGame(player: PlayerId, minutes: number, increment: number, now = Date.now(), white: PlayerId = player): Game {
+export function createGame(player: PlayerId, rival: PlayerId, minutes: number, increment: number, now = Date.now(), white: PlayerId = player): Game {
+    assert(player !== rival && (white === player || white === rival), 'Choose another player.');
     assert([1, 3, 5, 10].includes(minutes), 'Choose 1, 3, 5, or 10 minutes.');
     assert([0, 2].includes(increment), 'Choose 0 or 2 seconds of increment.');
-    return { id: crypto.randomUUID(), version: 0, status: 'pending', challenger: player, white, black: opponent(white), minutes, increment, whiteMs: minutes * 60000, blackMs: minutes * 60000, turnAt: 0, createdAt: now, finishedAt: null, moves: [], fen: new Chess().fen(), winner: null, reason: '', drawOffer: null };
+    return { id: crypto.randomUUID(), version: 0, status: 'pending', challenger: player, white, black: white === player ? rival : player, minutes, increment, whiteMs: minutes * 60000, blackMs: minutes * 60000, turnAt: 0, createdAt: now, finishedAt: null, moves: [], fen: new Chess().fen(), winner: null, reason: '', drawOffer: null };
 }
 function finish(g: Game, winner: PlayerId | null, reason: string, now: number) { g.status = 'finished'; g.winner = winner; g.reason = reason; g.finishedAt = now; g.drawOffer = null; }
 // Online-room convention: time is a draw when the non-flagging side has only a king,
@@ -104,7 +107,7 @@ export function transition(original: Game, player: PlayerId, action: string, bod
     }
     assert(g.status === 'active', 'This game is not active.', 409);
     if (action === 'resign') {
-        finish(g, opponent(player), 'Resignation', now);
+        finish(g, opponent(player, g), 'Resignation', now);
         return g;
     }
     if (action === 'offerDraw') {
@@ -113,12 +116,12 @@ export function transition(original: Game, player: PlayerId, action: string, bod
         return g;
     }
     if (action === 'acceptDraw') {
-        assert(g.drawOffer === opponent(player), 'There is no draw offer to accept.');
+        assert(g.drawOffer === opponent(player, g), 'There is no draw offer to accept.');
         finish(g, null, 'Draw by agreement', now);
         return g;
     }
     if (action === 'declineDraw') {
-        assert(g.drawOffer === opponent(player), 'There is no draw offer to decline.');
+        assert(g.drawOffer === opponent(player, g), 'There is no draw offer to decline.');
         g.drawOffer = null;
         return g;
     }
@@ -143,7 +146,7 @@ export function transition(original: Game, player: PlayerId, action: string, bod
     g.turnAt = now;
     g.moves.push(move.san);
     g.fen = chess.fen();
-    if (g.drawOffer === opponent(player))
+    if (g.drawOffer === opponent(player, g))
         g.drawOffer = null;
     if (chess.isCheckmate())
         finish(g, player, 'Checkmate', now);

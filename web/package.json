@@ -16,7 +16,8 @@
     "typecheck": "tsc --noEmit",
     "cloudflare:setup": "node scripts/cloudflare-setup.mjs setup",
     "cloudflare:deploy": "node scripts/cloudflare-setup.mjs deploy",
-    "cloudflare:pins": "node scripts/cloudflare-setup.mjs pins"
+    "cloudflare:pins": "node scripts/cloudflare-setup.mjs pins",
+    "cloudflare:add-player": "node scripts/cloudflare-setup.mjs add-player"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

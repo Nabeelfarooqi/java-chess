@@ -8,6 +8,13 @@
       "when": 1790029054429,
       "tag": "0000_overjoyed_the_anarchist",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1790031833858,
+      "tag": "0001_multiple_rivals",
+      "breakpoints": true
     }
   ]
 }

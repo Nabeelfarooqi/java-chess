@@ -24,17 +24,29 @@ export async function login(db: D1Database, req: Request, pin: unknown, env: {
     PIN_ONE_HASH?: string;
     PIN_TWO_HASH?: string;
 }) {
-    if (!env.PIN_ONE_HASH || !env.PIN_TWO_HASH)
-        throw new GameError('Room access is not configured yet.', 503);
     const ip = req.headers.get('cf-connecting-ip') || 'local-preview';
     await rateLimit(db, 'login-ip:' + await digest(ip), 8, 15 * 60000);
     await rateLimit(db, 'login-global', 50, 15 * 60000);
-    if (typeof pin !== 'string' || !/^\d{8}$/.test(pin))
-        throw new GameError('Enter your 8-digit access code.', 401);
-    const [one, two] = await Promise.all([verifyPin(pin, env.PIN_ONE_HASH), verifyPin(pin, env.PIN_TWO_HASH)]);
-    if (!one && !two)
+    if (typeof pin !== 'string' || !/^(\d{8}|\d{12})$/.test(pin))
+        throw new GameError('Enter your personal 8- or 12-digit access code.', 401);
+    let player: PlayerId | null = null;
+    if (pin.length === 8) {
+        if (!env.PIN_ONE_HASH || !env.PIN_TWO_HASH)
+            throw new GameError('Room access is not configured yet.', 503);
+        const [one, two] = await Promise.all([verifyPin(pin, env.PIN_ONE_HASH), verifyPin(pin, env.PIN_TWO_HASH)]);
+        player = one ? 'one' : two ? 'two' : null;
+    } else {
+        // New codes have a separate length, so they can never collide with the original PINs.
+        // A shared random KDF salt permits one expensive derivation and an indexed lookup.
+        const settings = await db.prepare('SELECT salt FROM pin_settings WHERE id=1').first<{ salt: string }>();
+        if (settings) {
+            const found = await db.prepare('SELECT id FROM players WHERE pin_hash=?')
+                .bind(await pinHash(pin, settings.salt)).first<{ id: string }>();
+            player = found?.id || null;
+        }
+    }
+    if (!player)
         throw new GameError('That code did not match. Try again.', 401);
-    const player: PlayerId = one ? 'one' : 'two';
     const token = hex(crypto.getRandomValues(new Uint8Array(32)).buffer);
     await db.batch([
         db.prepare('INSERT OR IGNORE INTO players(id,name) VALUES (?,?)').bind('one', 'Nabeel'),

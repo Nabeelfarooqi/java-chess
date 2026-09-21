@@ -1,15 +1,16 @@
 # Rival Room
 
-A private two-player web companion to the Java desktop game. Open the same link, enter your own eight-digit code, and challenge your friend. No user accounts or ChatGPT login are required.
+A private chess club that accompanies the Java desktop game. Open the same link, enter your personal code, choose a rival, and play. No user accounts or ChatGPT login are required.
 
 ## Play
 
 - 1-, 3-, 5-, or 10-minute games, optionally adding two seconds after each move.
-- Opponent accepts before clocks start. Colors alternate on the next challenge.
+- Opponent accepts before clocks start. Colors alternate separately for each pair of rivals.
 - Legal moves, check, castling, en passant, and choice of promotion piece.
 - Checkmate, stalemate, resignation, agreed draws, repetition and move-count draws.
 - Games and clocks survive refreshes. Closing the browser does not stop the clock.
 - Saved wins, losses, draws, recent history, individual PGN downloads and a full JSON backup.
+- Choose from the club roster; each person can have one active game or challenge at a time. Different pairs can play simultaneously.
 - Personal display names. One PIN belongs to each player; do not share your own PIN.
 
 Group-chat messages are not connected yet. Nothing sends a message to anyone.
@@ -57,9 +58,31 @@ If the database already exists, do not create a replacement. Copy `cloudflare.te
 
 The deploy script refuses a placeholder database ID. PIN hashes are runtime secrets, not build variables: `PIN_ONE_HASH` and `PIN_TWO_HASH`.
 
+## Add Usman or another rival
+
+For an existing deployment, pull the latest code and run `npm run cloudflare:deploy` first. The migration preserves Nabeel and Saif’s player IDs, PINs, names, sessions, games and scores. It also carries over a game already in progress.
+
+Then run this in your Mac terminal:
+
+```sh
+npm run cloudflare:add-player -- Usman
+```
+
+The command creates Usman’s profile and prints his personal **12-digit PIN once**. Save it and send him the site link and that code. Refresh the site to see him under **Play against**. Repeat with another name to invite more people:
+
+```sh
+npm run cloudflare:add-player -- "Another Friend"
+```
+
+Adding someone does not change anyone else’s code or scores. Existing Nabeel/Saif codes remain eight digits. New players receive twelve-digit codes, which cannot collide with the original codes. The server uses a randomly salted PBKDF2 derivation with an indexed hash lookup; plaintext PINs are not stored. Only someone with your Cloudflare account access can use this terminal command. A duplicate name is rejected, rather than silently replacing an existing identity. A player can change their display name in settings without changing their PIN or records.
+
+**Do not use `cloudflare:pins` to add a friend.** That older command rotates Nabeel and Saif’s original PINs and revokes all sessions; it does not add players or erase scores. New-player codes cannot be recovered from storage, so save them when displayed.
+
+Database triggers reserve one seat per player atomically and release it with a finished/cancelled game. These triggers are part of `drizzle/0001_multiple_rivals.sql`; preserve them when editing future schema migrations.
+
 ## Records and backups
 
-D1 stores authoritative games and sessions. Scores are calculated from finished games, so repeating a finish request cannot award extra wins. All-time totals include all games, while the screen lists the latest 20. Cancelled challenges are excluded.
+D1 stores authoritative games and sessions. Scores are calculated from finished games, so repeating a finish request cannot award extra wins. Each player’s all-time totals include only games they played. Head-to-head scores cover only the selected pair. History and exports include only your own games; the screen lists your latest 20 finished games. Cancelled challenges are excluded.
 
 Use **The record → Export all** for a complete JSON backup and **Save PGN** for an individual chess game. Storage is durable, not a promise of literal permanence: retain backups and the Cloudflare account/database. Automatic off-account backups and restore/import are possible follow-ups.
 
@@ -83,7 +106,7 @@ npm run typecheck
 npm run build
 ```
 
-Tests use a disposable local SQLite database. They verify access control, CSRF protection, rate limiting, two-player identity, legal moves, special moves, checkmate, draws, clock expiry, concurrent writes, session revocation, and persistence after reopening the database. They do not contact your Cloudflare account.
+Tests use a disposable local SQLite database. They verify access control, CSRF protection, rate limiting, multiple PIN identities, participant authorization, independent pair scores, safe upgrades of existing records, legal moves, special moves, checkmate, draws, clock expiry, concurrent writes, session revocation, and persistence after reopening the database. They do not contact your Cloudflare account.
 
 The app uses React, TypeScript, Vinext, chess.js, and Cloudflare D1. The original Java Swing game remains in the repository root and opens normally in IntelliJ.
 

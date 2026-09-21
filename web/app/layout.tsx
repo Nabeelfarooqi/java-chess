@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Rival Room — Your private chess club",
-  description: "Timed chess for two. Private access, rematches, and a lasting head-to-head record.",
+  description: "Timed chess with your friends. Personal PINs, rematches, and a lasting record against each rival.",
   other: {
     "codex-preview": "development",
   },

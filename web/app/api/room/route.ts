@@ -16,7 +16,7 @@ export async function GET(req: Request) { try {
         return json({ locked: true }, 401);
     const store = new Store(database);
     if (new URL(req.url).searchParams.get('export') === 'all')
-        return json({ exportedAt: new Date().toISOString(), ...(await store.room(me)), games: await store.export() });
+        return json({ exportedAt: new Date().toISOString(), ...(await store.room(me)), games: await store.export(me) });
     return json(await store.room(me));
 }
 catch (e) {
@@ -60,7 +60,7 @@ export async function POST(req: Request) {
         await rateLimit(database, 'actions:' + me, 240, 60000);
         const store = new Store(database);
         if (body.action === 'create')
-            await store.create(me, Number(body.minutes), Number(body.increment));
+            await store.create(me, body.rival, Number(body.minutes), Number(body.increment));
         else if (body.action === 'rename')
             await store.rename(me, body.name);
         else

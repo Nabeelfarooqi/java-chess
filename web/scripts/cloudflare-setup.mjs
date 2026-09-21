@@ -2,11 +2,12 @@ import { existsSync,readFileSync,writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { randomInt,randomBytes,pbkdf2Sync } from 'node:crypto';
 import { resolve } from 'node:path';
+import { newPlayer, playerName } from './player-pin.mjs';
 const config=resolve('cloudflare.local.json');
 const wrangler=resolve('node_modules/wrangler/bin/wrangler.js');
 function run(args,input){const r=spawnSync(process.execPath,[wrangler,...args],{stdio:input?['pipe','inherit','inherit']:'inherit',input,encoding:'utf8'});if(r.status!==0)process.exit(r.status||1);}
 const mode=process.argv[2]||'setup';
-if(!['setup','pins','deploy'].includes(mode))throw new Error('Use setup, pins, or deploy.');
+if(!['setup','pins','deploy','add-player'].includes(mode))throw new Error('Use setup, pins, deploy, or add-player.');
 if(!existsSync(config)){if(mode!=='setup')throw new Error('Run npm run cloudflare:setup first.');writeFileSync(config,readFileSync('cloudflare.template.json'));}
 if(mode==='setup'){
  console.log('Opening Cloudflare login. Choose the account that should own your game.');
@@ -39,4 +40,24 @@ if(mode==='pins'){
  console.log('\nSave these two personal access codes in a password manager. They are not saved to a file or GitHub.');
  console.log('Your code (Nabeel): '+pinOne);console.log('Your friend’s code (Saif): '+pinTwo);
  console.log('Share only your friend’s code with them. Rerunning this command replaces both codes and locks existing sessions.');
+}
+
+if(mode==='add-player'){
+ if(!process.stdout.isTTY)throw new Error('Run this interactively on your own computer; PINs must not appear in CI logs.');
+ const name=playerName(process.argv.slice(3).join(' '));
+ const query=command=>{
+  const r=spawnSync(process.execPath,[wrangler,'d1','execute','DB','--remote','--config',config,'--json','--command',command],{encoding:'utf8',maxBuffer:1024*1024});
+  if(r.status!==0)throw new Error('Could not update the database. Make sure cloudflare:deploy finished and Wrangler is logged in. '+(r.stderr||''));
+  const result=JSON.parse(r.stdout);
+  if(result.some(item=>item.success===false))throw new Error('Database update failed.');
+  return result.flatMap(item=>item.results||[]);
+ };
+ const settings=query('SELECT salt FROM pin_settings WHERE id=1')[0];
+ if(!settings)throw new Error('Run npm run cloudflare:deploy first to install the player migration.');
+ const player=newPlayer(name,settings.salt);
+ const inserted=query(player.sql);
+ if(!inserted.some(row=>row.id===player.id))throw new Error('A player with that name already exists. No PINs or scores were changed.');
+ console.log('\nAdded '+player.name+'. Save this code now; it cannot be recovered from the database.');
+ console.log(player.name+'’s personal PIN: '+player.pin);
+ console.log('Share the site link and this PIN with '+player.name+'. Other PINs and saved scores are unchanged.');
 }
