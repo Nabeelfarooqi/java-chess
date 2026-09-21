@@ -38,7 +38,7 @@ export async function login(db: D1Database, req: Request, pin: unknown, env: {
     const token = hex(crypto.getRandomValues(new Uint8Array(32)).buffer);
     await db.batch([
         db.prepare('INSERT OR IGNORE INTO players(id,name) VALUES (?,?)').bind('one', 'Nabeel'),
-        db.prepare('INSERT OR IGNORE INTO players(id,name) VALUES (?,?)').bind('two', 'Your rival'),
+        db.prepare('INSERT OR IGNORE INTO players(id,name) VALUES (?,?)').bind('two', 'Saif'),
         db.prepare('DELETE FROM sessions WHERE expires<=?').bind(Date.now()),
         db.prepare('DELETE FROM attempts WHERE expires<=?').bind(Date.now()),
         db.prepare('INSERT INTO sessions(token_hash,player_id,expires) VALUES (?,?,?)').bind(await digest(token), player, Date.now() + 12 * 60 * 60000)

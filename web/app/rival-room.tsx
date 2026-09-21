@@ -101,7 +101,7 @@ export function Club({ room, busy, online, offset, act, run }: {
     } | null>(null), [confirm, setConfirm] = useState(false), [settings, setSettings] = useState(false), [name, setName] = useState(''), [historyGame, setHistoryGame] = useState<Game | null>(null), [copied, setCopied] = useState(false);
     const { me, game: g } = room;
     const rival = opponent(me);
-    const who = (p: PlayerId) => room.players.find(x => x.id === p)?.name || (p === 'one' ? 'Nabeel' : 'Your rival');
+    const who = (p: PlayerId) => room.players.find(x => x.id === p)?.name || (p === 'one' ? 'Nabeel' : 'Saif');
     const board = useMemo(() => new Chess(g?.fen), [g?.fen]);
     const myColor = g ? (g.white === me ? 'w' : 'b') : 'w';
     const orientation = (myColor === 'b') !== flip ? 'b' : 'w';
