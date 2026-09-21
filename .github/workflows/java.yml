@@ -1,0 +1,28 @@
+name: Java checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        java: ['17', '21']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+      - name: Test chess rules and Swing interactions
+        run: java Build.java test
+      - name: Build runnable JAR
+        run: java Build.java build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: java-chess-${{ matrix.os }}-jdk${{ matrix.java }}
+          path: build/java-chess.jar
