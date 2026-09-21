@@ -1,0 +1,42 @@
+import { existsSync,readFileSync,writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { randomInt,randomBytes,pbkdf2Sync } from 'node:crypto';
+import { resolve } from 'node:path';
+const config=resolve('cloudflare.local.json');
+const wrangler=resolve('node_modules/wrangler/bin/wrangler.js');
+function run(args,input){const r=spawnSync(process.execPath,[wrangler,...args],{stdio:input?['pipe','inherit','inherit']:'inherit',input,encoding:'utf8'});if(r.status!==0)process.exit(r.status||1);}
+const mode=process.argv[2]||'setup';
+if(!['setup','pins','deploy'].includes(mode))throw new Error('Use setup, pins, or deploy.');
+if(!existsSync(config)){if(mode!=='setup')throw new Error('Run npm run cloudflare:setup first.');writeFileSync(config,readFileSync('cloudflare.template.json'));}
+if(mode==='setup'){
+ console.log('Opening Cloudflare login. Choose the account that should own your game.');
+ run(['login']);
+ const c=JSON.parse(readFileSync(config,'utf8'));
+ if(!c.d1_databases?.some(d=>d.binding==='DB'&&d.database_id)){
+  console.log('Creating your persistent chess database. If this name already exists, set its database_id in cloudflare.local.json instead of creating a replacement.');
+  run(['d1','create','rival-room-db','--binding','DB','--update-config','--config',config]);
+ }
+ const ready=JSON.parse(readFileSync(config,'utf8'));
+ if(!ready.d1_databases?.some(d=>d.binding==='DB'&&d.database_id))throw new Error('The DB binding was not written. Add the returned database ID to cloudflare.local.json.');
+ for(const db of ready.d1_databases)if(db.binding==='DB')db.migrations_dir='drizzle';
+ writeFileSync(config,JSON.stringify(ready,null,2)+'\n');
+ console.log('\nCloudflare is connected. Next: npm run cloudflare:deploy, then npm run cloudflare:pins.');
+}
+if(mode==='deploy'){
+ const c=JSON.parse(readFileSync(config,'utf8'));const database=c.d1_databases?.find(d=>d.binding==='DB');
+ if(!database?.database_id||database.database_id==='00000000-0000-4000-8000-000000000000')throw new Error('A real D1 database is required. Run npm run cloudflare:setup first.');
+ const built=spawnSync(process.execPath,['scripts/run-framework.mjs','build'],{stdio:'inherit'});if(built.status!==0)process.exit(built.status||1);
+ run(['d1','migrations','apply','DB','--remote','--config',config]);
+ run(['deploy','--config',resolve('dist/server/wrangler.json')]);
+ console.log('\nUse the workers.dev URL printed above. On the FIRST deployment, run npm run cloudflare:pins to enable access. Later deployments keep your existing PINs and records.');
+}
+if(mode==='pins'){
+ if(!process.stdout.isTTY)throw new Error('Run this interactively on your own computer; PINs must not appear in CI logs.');
+ const pinOne=String(randomInt(10000000,100000000));let pinTwo;do{pinTwo=String(randomInt(10000000,100000000))}while(pinOne===pinTwo);
+ const hash=pin=>{const salt=randomBytes(24).toString('hex');return salt+':'+pbkdf2Sync(pin,salt,100000,32,'sha256').toString('hex')};
+ run(['secret','bulk','--config',config],JSON.stringify({PIN_ONE_HASH:hash(pinOne),PIN_TWO_HASH:hash(pinTwo)}));
+ run(['d1','execute','DB','--remote','--config',config,'--command','DELETE FROM sessions']);
+ console.log('\nSave these two personal access codes in a password manager. They are not saved to a file or GitHub.');
+ console.log('Your code (Nabeel): '+pinOne);console.log('Your friend’s code: '+pinTwo);
+ console.log('Share only your friend’s code with them. Rerunning this command replaces both codes and locks existing sessions.');
+}

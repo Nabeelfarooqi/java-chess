@@ -96,3 +96,9 @@ The regression suite includes starting-position perft through depth 4 (197,281 n
 The initial implementation was compiled and tested on OpenJDK 17 in Linux. The Swing board was rendered and visually inspected offscreen. The local environment did not provide a Windows desktop or IntelliJ session; GitHub Actions adds Windows/JDK coverage, and native window behavior should be checked when you launch locally.
 
 The game uses only Java/Swing and bundled system fonts. The board and screenshot contain no third-party piece images. Original MIT license retained.
+
+## Private online chess: Rival Room
+
+The new [web companion](web/README.md) lets two friends play timed chess through a link, with personal PINs and saved wins/losses/draws. It deploys to your own Cloudflare account with Workers and D1. The desktop Java game above stays available in IntelliJ.
+
+See [web/README.md](web/README.md) for the one-time Cloudflare setup and deployment commands.
