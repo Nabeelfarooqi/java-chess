@@ -3,6 +3,31 @@ import { clockMs, type Game, type PlayerId } from './game';
 export type BoardMove = { from: Square; to: Square; promotion?: 'q' | 'r' | 'b' | 'n' };
 export const glyph = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' };
 export const pieceName = { k: 'king', q: 'queen', r: 'rook', b: 'bishop', n: 'knight', p: 'pawn' };
+export function isCastleGesture(board: Chess, from: Square, to: Square, color: Color): boolean {
+    const rank = color === 'w' ? '1' : '8';
+    return from === 'e' + rank && board.get(from)?.type === 'k' && board.get(from)?.color === color
+        && ['a', 'c', 'g', 'h'].some(file => to === file + rank);
+}
+// Both king-to-destination and king-to-rook gestures produce the same legal
+// king move. Keep this normalization at the board boundary, before queuing.
+export function boardTargets(board: Chess, from: Square, color: Color): Square[] {
+    if (board.get(from)?.color !== color) return [];
+    const targets = board.turn() === color ? board.moves({ square: from, verbose: true }).map(move => move.to) : premoveTargets(board, from, color);
+    const rank = color === 'w' ? '1' : '8';
+    if (from === 'e' + rank && board.get(from)?.type === 'k') {
+        const rights = board.getCastlingRights(color);
+        for (const [wing, file, rookFile] of [['k', 'g', 'h'], ['q', 'c', 'a']] as const) {
+            const rook = (rookFile + rank) as Square;
+            if (rights[wing] && targets.includes((file + rank) as Square) && board.get(rook)?.type === 'r' && board.get(rook)?.color === color) targets.push(rook);
+        }
+    }
+    return [...new Set(targets)];
+}
+export function boardMove(board: Chess, from: Square, to: Square, color: Color): BoardMove | null {
+    if (!boardTargets(board, from, color).includes(to)) return null;
+    if (isCastleGesture(board, from, to, color) && ['a', 'h'].includes(to[0])) to = ((to[0] === 'h' ? 'g' : 'c') + to[1]) as Square;
+    return { from, to };
+}
 export function squareAt(x: number, y: number, width: number, orientation: Color): Square | null {
     if (width <= 0 || x < 0 || y < 0 || x >= width || y >= width) return null;
     const file = Math.floor(x / width * 8), row = Math.floor(y / width * 8);

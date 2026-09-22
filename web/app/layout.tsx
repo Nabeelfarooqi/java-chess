@@ -1,6 +1,9 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./characters.css";
+import "./mobile.css";
+
+export const viewport: Viewport = { width: 'device-width', initialScale: 1, viewportFit: 'cover', themeColor: '#131713' };
 
 export const metadata: Metadata = {
   title: "Rival Room — Your private chess club",

@@ -1,0 +1,7 @@
+Chess pieces by Colin M. L. Burnett (Cburnett).
+License: GNU General Public License version 2 or later (GPL-2.0-or-later).
+Unmodified SVG artwork from the Lichess cburnett set.
+Source: https://github.com/lichess-org/lila/tree/master/public/piece/cburnett
+Attribution and license: https://github.com/lichess-org/lila/blob/master/COPYING.md
+Author: https://en.wikipedia.org/wiki/User:Cburnett
+The distributed SVG files are their editable source. See LICENSE.txt.

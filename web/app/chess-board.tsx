@@ -1,7 +1,8 @@
 'use client';
 import { memo, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { Chess, type Color, type Square } from 'chess.js';
-import { pieceName, premoveTargets, squareAt, type BoardMove } from '@/lib/board';
+import { boardMove, boardTargets, isCastleGesture, pieceName, squareAt, type BoardMove } from '@/lib/board';
+import { toast } from 'sonner';
 import { characterForColor, type CharacterKey } from '@/lib/characters';
 import { BoardPiece } from './character-art';
 type Props = {
@@ -17,7 +18,7 @@ export const ChessBoard = memo(function ChessBoard({ fen, orientation, color, ac
     const drag = useRef<{ id: number; from: Square; x: number; y: number; moving: boolean; target: HTMLButtonElement } | null>(null);
     const enabled = active && online;
     const myTurn = board.turn() === color;
-    const targets = useMemo(() => !selected || !enabled ? [] : myTurn ? board.moves({ square: selected, verbose: true }).map(m => m.to) : premoveTargets(board, selected, color), [board, selected, enabled, myTurn, color]);
+    const targets = useMemo(() => !selected || !enabled ? [] : boardTargets(board, selected, color), [board, selected, enabled, color]);
     const stopDrag = () => {
         const previous = drag.current; drag.current = null;
         if (previous?.target.hasPointerCapture(previous.id)) previous.target.releasePointerCapture(previous.id);
@@ -28,13 +29,14 @@ export const ChessBoard = memo(function ChessBoard({ fen, orientation, color, ac
     useEffect(() => { const escape = (e: KeyboardEvent) => { if (e.key === 'Escape') { stopDrag(); setSelected(null); onCancel(); } }; window.addEventListener('keydown', escape); return () => window.removeEventListener('keydown', escape); }, [onCancel]);
     function attempt(from: Square, to: Square) {
         if (!enabled || (myTurn && !canMove)) return;
-        const valid = myTurn ? board.moves({ square: from, verbose: true }).some(m => m.to === to) : premoveTargets(board, from, color).includes(to);
+        const move = boardMove(board, from, to, color);
         setSelected(null);
-        if (valid) onMove(from, to);
+        if (move) onMove(move.from, move.to);
+        else if (isCastleGesture(board, from, to, color)) toast('Cannot castle here. Clear the path; the king and rook must be unmoved, and the king cannot castle out of, through, or into check.');
     }
     function click(square: Square) {
         if (!enabled || (myTurn && !canMove)) return;
-        if (selected && targets.includes(square)) { attempt(selected, square); return; }
+        if (selected && (targets.includes(square) || isCastleGesture(board, selected, square, color))) { attempt(selected, square); return; }
         if (board.get(square)?.color === color) setSelected(selected === square ? null : square);
         else { setSelected(null); onCancel(); }
     }

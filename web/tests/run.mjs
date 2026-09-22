@@ -179,7 +179,7 @@ await check('PIN-linked character persists through renames and color swaps witho
  assert.equal(getCharacter(usman.id),null);assert.equal(getCharacter('two'),null);assert.equal(getCharacter(undefined),null);
 });
 const {Chess}=require('chess.js');
-const {squareAt,legalMove,previewMove,premoveReady,premoveTargets}=require(new URL('lib/board.cjs',build).pathname);
+const {squareAt,legalMove,previewMove,premoveReady,premoveTargets,boardTargets,boardMove}=require(new URL('lib/board.cjs',build).pathname);
 const {mergeRoom}=require(new URL('lib/room-update.cjs',build).pathname);
 const {parseInfo,classify}=require(new URL('lib/review.cjs',build).pathname);
 await check('Drag coordinates match both orientations and reject off-board drops',()=>{
@@ -203,6 +203,26 @@ await check('Immediate move preview keeps server state immutable and moves the r
  assert.equal(game.moves.length,0);assert.equal(shown.moves[0],'e4');assert.equal(shown.version,game.version);assert.equal(shown.whiteMs,299500);
  const castle={...game,fen:'r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1'};const castled=previewMove(castle,'one',{from:'e1',to:'g1'},1500);
  assert.equal(new Chess(castled.fen).get('f1').type,'r');assert.equal(castled.status,'active');
+});
+await check('King-to-rook taps and drops castle on both wings for either color without bypassing the rules',()=>{
+ for(const color of ['w','b'])for(const [rookFile,kingFile] of [['h','g'],['a','c']]){
+  const rank=color==='w'?'1':'8',chess=new Chess(`r3k2r/8/8/8/8/8/8/R3K2R ${color} KQkq - 0 1`);
+  const from='e'+rank,to=kingFile+rank,rook=rookFile+rank;
+  assert.ok(boardTargets(chess,from,color).includes(rook));
+  assert.deepEqual(boardMove(chess,from,rook,color),{from,to});
+  assert.deepEqual(boardMove(chess,from,to,color),{from,to});
+  chess.move(boardMove(chess,from,rook,color));
+  assert.equal(chess.get(to).type,'k');assert.equal(chess.get((rookFile==='h'?'f':'d')+rank).type,'r');
+ }
+ for(const fen of ['r3k2r/8/8/8/8/8/8/R3K2R w - - 0 1','4kr2/8/8/8/8/8/8/R3K2R w KQ - 0 1','4k3/8/8/8/8/8/8/R3KB1R w KQ - 0 1','k3r3/8/8/8/8/8/8/R3K2R w KQ - 0 1']){
+  assert.equal(boardMove(new Chess(fen),'e1','h1','w'),null);
+ }
+ assert.equal(boardMove(new Chess(),'e1','h1','w'),null);
+ assert.equal(boardMove(new Chess(),'e2','d2','w'),null);
+ const before=new Chess('r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1');
+ const intent=boardMove(before,'e1','h1','w');assert.deepEqual(intent,{from:'e1',to:'g1'});
+ const game={...createGame('one','two',5,0),status:'active',fen:'k4r2/8/8/8/8/8/8/R3K2R w KQ - 0 1'};
+ assert.equal(premoveReady(game,'one',{...intent,gameId:game.id}),false);
 });
 await check('Premoves wait for the opponent, revalidate legality, and cannot cross games',()=>{
  let game=transition(createGame('one','two',5,0,0),'two','accept',{},1);

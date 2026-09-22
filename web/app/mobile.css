@@ -1,0 +1,102 @@
+/* Stable artwork and a compact playing surface, including iOS Safari. */
+.chessboard { grid-template-rows: repeat(8, minmax(0, 1fr)); }
+.square { min-height: 0; }
+.piece {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 88%;
+  height: 88%;
+  min-width: 0;
+  min-height: 0;
+  -webkit-text-stroke: 0;
+  filter: drop-shadow(0 1px 1px #0003);
+}
+.piece-svg { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.piece.character-king { width: 88%; height: 88%; }
+.character-king .king-face {
+  position: absolute; right: -2%; bottom: 0;
+  width: 40%; height: 43%; border-radius: 50%; border-width: 1px;
+  box-shadow: 0 1px 3px #0006;
+}
+.promotion-choices .piece { width: 48px; height: 48px; }
+.seat-color { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; border: 1px solid #c2cabb; }
+.seat-color.w { background: #fff; }
+.seat-color.b { background: #181b19; }
+.player-info { min-width: 0; }
+.player-info strong { overflow-wrap: anywhere; }
+.board-tools { margin: 4px 0 0; min-height: 44px; align-items: center; }
+.board-status { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; color: var(--foreground); }
+.board-status small { color: var(--muted-foreground); font-size: 12px; font-weight: 400; white-space: nowrap; }
+.board-buttons { display: flex; gap: 2px; flex-shrink: 0; }
+.board-buttons button { width: 44px; height: 44px; padding: 10px; }
+.board-help { font-size: 15px; line-height: 1.6; }
+.board-help h3 { font-weight: 700; margin: 12px 0 6px; }
+.board-help p { color: var(--muted-foreground); margin-bottom: 10px; }
+.premove-note { margin-top: 4px; }
+.rank, .file { pointer-events: none; }
+
+@media (max-width: 700px) {
+  .club {
+    padding: max(10px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  }
+  .club-header { gap: 8px; padding: 0 4px 8px; }
+  .club-identity { gap: 8px; }
+  .club .identity-portrait { width: 34px; height: 38px; border-radius: 8px; transform: none; }
+  .club .brand { font-size: 10px; letter-spacing: .09em; }
+  .signed-in-player { margin-top: 2px; gap: 4px; font-size: 12px; }
+  .signed-in-player strong { font-size: 15px; }
+  .header-actions button { width: 44px; height: 44px; padding: 10px; }
+  .club-title { padding: 14px 4px; gap: 10px; }
+  .club-title h1 { font-size: 25px; }
+  .score-chip { padding: 7px 10px; gap: 8px; }
+  .score-player { flex-direction: row; gap: 6px; max-width: none; }
+  .score-player > span { font-size: 12px; }
+  .score-chip b { font-size: 17px; }
+  .game-active .club-title { justify-content: flex-end; padding: 5px 4px; }
+  .game-active .club-title > div:first-child { display: none; }
+  .game-active .score-chip { padding: 3px 0; border: 0; border-radius: 0; }
+  .game-active .score-chip > svg { display: none; }
+  .club-grid { gap: 12px; }
+  .game-active .board-column { width: min(100%, max(260px, calc(100svh - 225px))); margin-inline: auto; }
+  .character-player, .board-frame + .character-player {
+    gap: 8px; min-height: 48px; padding: 4px 7px;
+    margin: 0 0 5px; border-radius: 6px; border-left-width: 3px;
+    background: color-mix(in srgb, var(--team-surface) 50%, var(--background));
+  }
+  .board-frame + .character-player { margin: 5px 0 0; }
+  .character-player .character-portrait { width: 30px; height: 34px; border-radius: 7px; font-size: 18px; }
+  .character-player .player-info { gap: 2px; }
+  .character-player .player-info strong { font-size: 14px; gap: 5px; }
+  .character-player .player-info > span { font-size: 11px; }
+  .character-player .player-info small { font-size: 9px; padding: 1px 3px; }
+  .character-player .clock { min-width: 92px; height: 36px; font-size: 26px; border-radius: 5px; gap: 5px; }
+  .clock svg { display: none; }
+  .board-frame { padding: 2px; border-radius: 4px; }
+  .chessboard { border-radius: 2px; }
+  .rank, .file { font-size: 9px; }
+  .rank { top: 2px; left: 3px; }
+  .file { bottom: 1px; right: 3px; }
+  .board-tools { margin: 0; align-items: center; }
+  .board-tools > span { max-width: calc(100% - 90px); line-height: 1.3; }
+  .premove-note { min-height: 40px; padding: 4px 10px; font-size: 13px; }
+  .premove-note button { min-height: 36px; }
+  .room-panel { margin: 0; border-radius: 9px; }
+  .panel-tabs { height: 46px; }
+  .panel-tabs button { font-size: 14px; }
+  .panel-section { padding: 16px; }
+  .panel-section h2 { font-size: 25px; }
+  .panel-copy, .panel-note { font-size: 14px; }
+  .game-active .live-heading, .game-active .panel-section > h2, .game-active .panel-section > .panel-copy { display: none; }
+  .game-active .panel-section { display: flex; flex-direction: column; gap: 12px; padding: 12px; }
+  .game-active .game-actions { order: -2; margin: 0; }
+  .game-active .draw-notice { order: -1; margin: 0; }
+  .game-actions button { min-height: 44px; font-size: 14px; }
+  .move-list { min-height: 54px; max-height: 160px; font-size: 14px; }
+  .moves-empty { padding: 18px 10px; font-size: 13px; }
+  .rivalry-strip { padding: 14px 16px; }
+  .rivalry-strip b, .rivalry-strip p { font-size: 12px; }
+  .club footer { font-size: 9px; margin-top: 16px; padding: 14px 4px; gap: 12px; }
+  .review-grid .board-column { width: 100%; }
+  .code-row input { font-size: 16px; }
+}

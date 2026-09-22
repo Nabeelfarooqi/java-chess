@@ -140,7 +140,7 @@ The queue is disabled by default and does not announce historical games. Cancell
 | Usman (his generated player ID) | Gud | Red hoodie |
 | Saif (original ID `two`) | Saif | Standard pieces and initial |
 
-Signing in selects your room theme, portrait, and “You are” name. The other player’s portrait appears beside their clock. The board’s four home ranks use their owner’s green or red palette, and each character’s face appears on their king with a small king symbol showing the chess color. Other pieces keep recognizable chess shapes with matching accents.
+Signing in selects your room theme, portrait, and “You are” name. The other player’s portrait appears beside their clock. The board’s four home ranks use their owner’s green or red palette, and each character’s portrait appears as a small badge on their king. All pieces use fixed white/black SVG artwork, including pawns, so iOS cannot substitute emoji or hide the chess color.
 
 Characters are saved on the player record in D1 and sent with the authenticated roster. They follow each game’s white/black assignments through rematches, board flips, dragging, premoves, and Game Review. Changing a display name never transfers the character, PIN, or scores; a unique index prevents assigning the same character twice. Other rivals use their own names, initials, and standard pieces.
 
@@ -153,11 +153,15 @@ The supplied JPEG drawings are stored unchanged in `public/characters/`. CSS fra
 ## Board controls and premoves
 
 - **Move:** drag a piece onto a legal square, or click/tap its square and then the destination. Keyboard Tab and Enter/Space also work. Illegal moves snap back.
-- **Castle:** move the king two squares toward the rook (`e1–g1`, `e1–c1`, `e8–g8`, or `e8–c8`). The rook follows automatically when the path, castling rights, and king safety allow it.
+- **Castle:** move the king two squares toward the rook (`e1–g1`, `e1–c1`, `e8–g8`, or `e8–c8`), or tap/drag the king onto its rook. Both gestures submit the same king move; the rook follows automatically. The path must be clear, both pieces must be unmoved, and the king cannot castle out of, through, or into check. A blocked castling gesture explains these requirements instead of silently selecting the rook.
 - **Premove:** while the opponent is thinking, drag or select your next move. The highlighted queue holds one move; another choice replaces it. Promotion asks which piece to use.
 - **Cancel:** press Escape, right-click the board, or use **Cancel** beside the queued move.
 - A premove is rechecked when your turn arrives. If it is illegal, the game ends, the connection fails, or you change games, it is cancelled. The tab must remain open for the queue to run. It uses normal server clock timing; zero-time premoves and network lag compensation are not implemented.
 - **Flip board** changes your view without changing identity, color, or turn. Your PIN continues to identify your own name and scores.
+
+On phones, active games use compact player/clock rows, a board sized to the available viewport, and a short turn/control bar. Tap the question-mark button for castling and premove instructions. A queued premove retains its visible Cancel button. Draw/resign controls appear above the move list, and safe-area padding accommodates iPhone screen cutouts. Pinch zoom remains enabled.
+
+Piece artwork: Colin M. L. Burnett’s cburnett set from Lichess, distributed unchanged under GPL-2.0-or-later. Attribution, source, and the license accompany the SVGs in `public/pieces/`.
 
 ## Game Review
 
