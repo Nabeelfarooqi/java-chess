@@ -54,14 +54,15 @@ CREATE TRIGGER games_series_result AFTER UPDATE OF state ON games
 WHEN json_extract(NEW.state,'$.seriesId') IS NOT NULL
 AND json_extract(OLD.state,'$.status')<>'finished' AND json_extract(NEW.state,'$.status')='finished'
 BEGIN
+  -- IIF avoids nested CASE/END tokens confusing D1/Wrangler's SQL splitter.
   UPDATE series SET
-    one_wins=one_wins+CASE WHEN json_extract(NEW.state,'$.winner')=player_one THEN 1 ELSE 0 END,
-    two_wins=two_wins+CASE WHEN json_extract(NEW.state,'$.winner')=player_two THEN 1 ELSE 0 END,
-    draws=draws+CASE WHEN json_extract(NEW.state,'$.winner') IS NULL THEN 1 ELSE 0 END,
+    one_wins=one_wins+IIF(json_extract(NEW.state,'$.winner')=player_one,1,0),
+    two_wins=two_wins+IIF(json_extract(NEW.state,'$.winner')=player_two,1,0),
+    draws=draws+IIF(json_extract(NEW.state,'$.winner') IS NULL,1,0),
     version=version+1
   WHERE id=json_extract(NEW.state,'$.seriesId') AND status='active';
   UPDATE series SET status='finished',finished_at=NEW.finished_at,
-    winner=CASE WHEN one_wins>two_wins THEN player_one ELSE player_two END
+    winner=IIF(one_wins>two_wins,player_one,player_two)
   WHERE id=json_extract(NEW.state,'$.seriesId') AND status='active'
     AND (one_wins>best_of/2 OR two_wins>best_of/2);
 END;

@@ -26,6 +26,7 @@ if(mode==='setup'){
 if(mode==='deploy'){
  const c=JSON.parse(readFileSync(config,'utf8'));const database=c.d1_databases?.find(d=>d.binding==='DB');
  if(!database?.database_id||database.database_id==='00000000-0000-4000-8000-000000000000')throw new Error('A real D1 database is required. Run npm run cloudflare:setup first.');
+ const checked=spawnSync(process.execPath,['scripts/check-migrations.mjs',resolve(database.migrations_dir||'migrations')],{stdio:'inherit'});if(checked.status!==0)process.exit(checked.status||1);
  const built=spawnSync(process.execPath,['scripts/run-framework.mjs','build'],{stdio:'inherit'});if(built.status!==0)process.exit(built.status||1);
  run(['d1','migrations','apply','DB','--remote','--config',config]);
  run(['deploy','--config',resolve('dist/server/wrangler.json')]);

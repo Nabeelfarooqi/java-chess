@@ -87,7 +87,7 @@ npm run cloudflare:pins
 ```
 
 1. **Setup** opens Cloudflare's own login in your browser, then creates `rival-room-db`. It stores the database binding in ignored `cloudflare.local.json`. If you have several Cloudflare accounts, select the one that should own the game.
-2. **Deploy** prepares the pinned review engine, builds the Worker, applies only pending D1 schema migrations, and publishes. The build config adds the `LIVE_PLAYERS` Durable Object binding and its `player-live-v1` migration automatically; existing local Cloudflare configurations work without editing. Keep the `workers.dev` URL that Wrangler prints.
+2. **Deploy** first checks the configured migrations with the installed Wrangler SQL splitter against a disposable local SQLite database. If they pass, it prepares the pinned review engine, builds the Worker, applies only pending D1 schema migrations, and publishes. A failed preflight stops before building or touching Cloudflare. The build config adds the `LIVE_PLAYERS` Durable Object binding and its `player-live-v1` migration automatically; existing local Cloudflare configurations work without editing. Keep the `workers.dev` URL that Wrangler prints.
 3. **PINs** generates two different random codes, uploads only salted PBKDF2 hashes as Worker secrets, revokes Walan and Saif’s sessions, and prints the codes in your local terminal. Save them in a password manager. Send your friend the URL and their code. Do not put the codes into GitHub or this README.
 
 Until PIN hashes are configured, the room refuses entry. Running `cloudflare:pins` again **replaces both codes**; it does not reset the scores. Do not run it in CI: it requires an interactive terminal to keep codes out of CI logs.
@@ -102,6 +102,21 @@ npm run cloudflare:deploy
 ```
 
 Keep using the same D1 database. Creating or selecting a different database would create a different record. Do not delete `rival-room-db` if you want to retain your history.
+
+### Recover from the 0007 migration error
+
+If the club update stopped at `0007_club_expansion.sql` with `incomplete input: SQLITE_ERROR [code: 7500]`, its series result trigger contained `CASE`/`END` spelling that the Wrangler SQL splitter misread. The fix uses equivalent `IIF` expressions and keeps the migration's name so the failed update can be retried. The prior integration tests executed whole SQL files, which missed this parsing problem; preflight and Workers-runtime tests now use Wrangler's actual statement boundaries.
+
+Stop the iMessage sender with Ctrl+C if it is running, then run:
+
+```sh
+cd ~/Projects/java-chess/web &&
+git pull --ff-only &&
+npm run cloudflare:deploy &&
+npm run imessage:start
+```
+
+Cloudflare [rolls back a failed migration](https://developers.cloudflare.com/d1/wrangler-commands/#d1-migrations-apply), keeping earlier successful migrations. No database reset, manual migration-table changes, setup rerun, or PIN rotation is needed. An installation that already applied `0007` skips it as usual; the trigger's scoring behavior is unchanged. The script publishes the Worker only after migrations succeed. Local verification covers parsing, rollback/retry, and preservation of existing data; it does not connect to your production database.
 
 ### Existing D1 database
 
@@ -273,12 +288,18 @@ Use **The record → Export all** for a complete JSON backup and **Save PGN** fo
 ## Development and checks
 
 ```sh
+npm run db:check
+npm run test:migrations
 npm test
 npm run typecheck
 npm run build
 ```
 
 The club release passes 66 integration checks, real Workers WebSocket/series tests, 24 mocked messaging checks, component presentation tests, offline-cache/icon/sound tests, subdomain regression tests, TypeScript checking, and a production build. The remote preview browser could not reach the local preview, so this release does not claim an on-device iPhone visual/audio/install verification. Test iPhone installation and real BlueBubbles image delivery on your devices after deploying.
+
+Migration checks reproduce the `0007` parsing failure with the old `CASE` spelling, verify rollback and the corrected retry, and preserve sample player/PIN data, sessions, active games/seats, completed records, spectator access, and queued notifications. `npm test` includes these checks. Preflight is an early compatibility check, not a substitute for production D1 validation; the deploy still stops if Cloudflare rejects a migration.
+
+The repair was also verified with the actual Wrangler 4.92.0 CLI against a disposable local D1 database: the old trigger failed, its schema changes rolled back, the corrected migration applied while retaining sample PIN/session data, and a repeat apply correctly found nothing pending. A separate deployment check confirmed that invalid SQL stops the script before its build or remote commands.
 
 Tests use disposable local SQLite databases and the local Workers/Miniflare runtime bundled with Wrangler. They verify access control, CSRF protection, rate limiting, multiple PIN identities, participant authorization, independent pair scores, safe upgrades and character renaming of existing records, character ownership across color swaps, legal moves, special moves, checkmate, draws, clock expiry, concurrent writes, session revocation, persistence after reopening the database, castling on both sides for both colors, premove legality, stale response handling, stable duplicate-game updates, clock-aware polling, result-card pairing/freshness, connection status, review classification, and authenticated WebSocket delivery/revocation. They also check six-digit PIN replacement and duplicate rejection, notification migrations/leases, stale challenge suppression, result scores, uncertain sends, retry journals, documented BlueBubbles request formats, and PNG rendering. Spectator checks cover disabled access, code collisions, origin/rate limits, live game selection, blocked player/notification actions, persistence, session expiry, rotation/disable/logout, and denial of player WebSocket access. They do not contact your Cloudflare account or send real messages. Live Apple Messages permissions and delivery must be checked on the Mac after setup.
 

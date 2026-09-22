@@ -3,6 +3,7 @@ import { readFileSync, mkdirSync, readdirSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { pbkdf2Sync } from 'node:crypto';
+import { unstable_splitSqlQuery as splitSqlQuery } from 'wrangler';
 const wranglerRequire = createRequire(realpathSync(new URL('../node_modules/wrangler/package.json', import.meta.url)));
 const { Miniflare } = wranglerRequire('miniflare');
 const { build } = wranglerRequire('esbuild');
@@ -16,7 +17,7 @@ const sockets=[];
 try {
  const db=await mf.getD1Database('DB');
  for(const f of readdirSync(root+'drizzle').filter(f=>f.endsWith('.sql')).sort()){
-  const statements=readFileSync(root+'drizzle/'+f,'utf8').split('--> statement-breakpoint').map(s=>s.trim()).filter(Boolean);
+  const statements=splitSqlQuery(readFileSync(root+'drizzle/'+f,'utf8'));
   await db.batch(statements.map(s=>db.prepare(s)));
  }
  const origin=(await mf.ready).origin;
