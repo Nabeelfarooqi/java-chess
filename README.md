@@ -111,6 +111,8 @@ If multiple FRQ entries have identical members, `npm run imessage:groups` compar
 
 If website authentication fails after saving destinations, `npm run imessage:connect` resumes the saved setup and verifies the bridge before enabling notifications. It preserves your chats, PINs, scores, and delivery journal; there is no need to repeat recipient selection.
 
+For an announcement paused as `needs_review`, updated Mac scripts report sanitized BlueBubbles/AppleScript error details in `imessage:status` and the sender Terminal. Check Messages before retrying the single event; uncertain sends stay paused to avoid duplicates. See [delivery troubleshooting](web/IMESSAGE_SETUP.md#status-and-interrupted-sends).
+
 See [web/README.md](web/README.md) for Cloudflare setup, deployment, PIN management, and verification commands.
 
 Group results rotate through owner-approved win jokes and separate draw phrases for every pairing, while keeping the winner and head-to-head record accurate. Phrase selection stays consistent when a notification is retried.

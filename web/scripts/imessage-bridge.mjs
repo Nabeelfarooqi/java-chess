@@ -41,7 +41,13 @@ try {
       try {
         await bb.ping(); // Do not claim jobs while the Mac's message server is offline.
         const { job } = await post({ action: 'claim' });
-        if (job) console.log(new Date().toLocaleTimeString(), job.kind, await deliver(job, config, { bb, post, journal }), job.id);
+        if (job) {
+          const deliveryPost = async body => {
+            if (body.action === 'ack' && body.status === 'needs_review') console.error(body.detail);
+            return post(body);
+          };
+          console.log(new Date().toLocaleTimeString(), job.kind, await deliver(job, config, { bb, post: deliveryPost, journal }), job.id);
+        }
         reported = '';
       } catch (error) { if (reported !== error.message) console.error(error.message); reported = error.message; }
       for (let second = 0; second < 10 && !stopping; second++) await new Promise(resolve => setTimeout(resolve, 1000));

@@ -161,6 +161,46 @@ try {
   assert.equal(await deliver({...uncertain,attempts:2},config,options),'needs_review');assert.equal(calls,1);assert.deepEqual(statuses,['needs_review','needs_review']);
   assert.equal(await deliver({...job,id:'lost-journal',attempts:2},config,options),'needs_review');assert.equal(calls,1);
  });
+ await check('Failed group sends preserve useful error categories without exposing credentials, message content, or chat identifiers',async()=>{
+  const secret='private-password',address='private@example.test',body='private message body',chat='any;+;private-group';
+  const cases=[
+   [401,{error:{message:secret}},/HTTP 401.*access was rejected/],
+   [500,{error:{message:`Can't get chat ${chat}, ${address}, ${body}, ${secret}. (-1728)`}},/HTTP 500.*selected Messages object \(-1728\)/],
+   [500,{error:{message:`Not authorized ${secret} (-1743)`}},/automation permission denied/],
+   [500,{error:{message:`Timed out ${secret} (-1712)`}},/AppleScript timed out/],
+   [500,{error:{message:`Other error ${secret} (-1700)`}},/AppleScript error -1700/],
+   [500,{error:{message:'Failed to send message!'},data:{error:22,text:body,chatGuid:chat}},/Messages send error code 22/],
+   [500,{error:{message:'Failed to send message! Message not found in database after 60 seconds!'}},/not confirmed in the Messages database/],
+   [200,{status:500,error:{message:secret},data:{text:body}},/HTTP 500.*BlueBubbles Logs/],
+  ];
+  for(const [index,[status,payload,expected]] of cases.entries()){
+   let sends=0;const acks=[],event={...job,id:'diagnostic-'+index};
+   const bb=new BlueBubbles('http://127.0.0.1:1234',secret,async()=>{sends++;return Response.json(payload,{status})});
+   const options={bb,post:async b=>acks.push(b),journal:new Journal(directory,config.site)};
+   assert.equal(await deliver(event,config,options),'needs_review');
+   assert.match(acks[0].detail,expected);assert.match(acks[0].detail,/Check Messages before retrying/);
+   assert.ok(acks[0].detail.length<=160);
+   for(const privateValue of [secret,address,body,chat]) assert.ok(!JSON.stringify(acks).includes(privateValue));
+   assert.equal(await deliver({...event,attempts:2},config,options),'needs_review');assert.equal(sends,1);
+  }
+ });
+ await check('Transport timeouts and unreadable responses stay unconfirmed with redacted diagnostics',async()=>{
+  const cases=[
+   [async()=>{throw new DOMException('secret-url','TimeoutError')},/request timed out/],
+   [async()=>{throw Error('secret-url')},/connection failed/],
+   [async()=>new Response('secret-url',{status:502}),/HTTP 502/],
+   [async()=>new Response('secret-url'),/unreadable response/],
+   [async()=>Response.json(null),/unreadable response/],
+  ];
+  for(const [index,[fetcher,expected]] of cases.entries()){
+   const acks=[],bb=new BlueBubbles('http://127.0.0.1:1234','secret-url',fetcher);
+   assert.equal(await deliver({...job,id:'transport-'+index},config,{bb,post:async b=>acks.push(b),journal:new Journal(directory,config.site)}),'needs_review');
+   assert.match(acks[0].detail,expected);assert.ok(!JSON.stringify(acks).includes('secret-url'));
+  }
+  const acks=[];
+  await deliver({...job,id:'untrusted-error'},config,{bb:{text:async()=>{throw Error('secret-url')}},post:async b=>acks.push(b),journal:new Journal(directory,config.site)});
+  assert.equal(acks[0].detail,'BlueBubbles did not confirm text delivery. Check Messages before retrying.');
+ });
  await check('An acknowledgement outage retries bookkeeping without resending the completed result',async()=>{
   const journal=new Journal(directory,config.site);let sends=0;const options={bb:{text:async()=>sends++,image:async()=>sends++},render:async()=>Buffer.from('png'),journal};
   const event={...job,id:'ack-outage'};

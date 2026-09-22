@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync } from '
 import { createHash, randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { chatKind } from './imessage-chat-list.mjs';
+import { blueBubblesFailureDetail } from './bluebubbles-client.mjs';
 export function siteOrigin(value) {
   const url = new URL(value);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('Use your HTTPS chess site address without a path or query.');
@@ -43,8 +44,8 @@ export async function deliver(job, config, { bb, post, journal }) {
     const tempGuid = randomUUID(); state.parts.text = { status: 'sending', tempGuid }; journal.put(job.id, state);
     try {
       await bb.text(chatGuid, job.text, tempGuid);
-    } catch {
-      await ack('needs_review', 'BlueBubbles did not confirm text delivery. Check Messages before retrying.'); return 'needs_review';
+    } catch (error) {
+      await ack('needs_review', blueBubblesFailureDetail(error)+' Check Messages before retrying.'); return 'needs_review';
     }
     state.parts.text.status = 'done'; journal.put(job.id, state);
   }

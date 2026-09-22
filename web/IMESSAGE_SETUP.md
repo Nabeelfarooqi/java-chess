@@ -133,6 +133,10 @@ npm run imessage:status
 
 The latest 30 events show `pending`, `leased` (being processed), `sent`, `skipped`, or `needs_review`. A lease expires after five minutes if the sender stops abruptly. Confirmed texts are journaled locally and are not sent again merely because Cloudflare's acknowledgement failed. Older confirmed result texts remain complete; unfinished image parts are no longer sent.
 
+Failed sends now print a sanitized reason in the sender Terminal and save it in the status table: HTTP rejection, connection/timeout, an AppleScript error code, or a Messages send code. Raw API error bodies can contain credentials, addresses, and message text, so they are never printed or uploaded. An older generic `needs_review` entry cannot recover its original error; stop the sender, pull the Mac scripts, and review it before a manual retry. This update requires no Cloudflare deployment or repeat setup.
+
+If a challenge is `sent` but the result is `needs_review`, the website queued both events and the group send needs investigation. Open the selected group in Messages and check whether the announcement is present, including among duplicate group threads. For a missing announcement, follow the manual retry below. An AppleScript `-1728` means a selected Messages object could not be found; verify the exact group rather than switching to another FRQ by name. `-1743` indicates Messages automation permission was denied. A timeout leaves delivery uncertain. For a generic HTTP 500 or a repeated failure, inspect BlueBubbles Logs around the attempt; share only the relevant error, with addresses and message text removed. Do not repeatedly requeue an uncertain send.
+
 If an event says `needs_review`, first inspect the intended conversation in Messages. BlueBubbles can time out after a send, so an automatic retry could duplicate it. Stop the sender with Ctrl+C. If the unconfirmed message is missing and you want to retry, copy the exact event ID from status:
 
 ```sh
