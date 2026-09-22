@@ -1,3 +1,5 @@
+-- Keep each trigger on one line for the pinned Wrangler remote D1 query path.
+-- Nested conditional expressions use IIF or SELECT RAISE ... WHERE, not CASE.
 CREATE TABLE player_presence (
   token_hash TEXT PRIMARY KEY NOT NULL REFERENCES sessions(token_hash) ON DELETE CASCADE,
   last_seen INTEGER NOT NULL
@@ -24,72 +26,20 @@ CREATE TABLE series_seats (
 --> statement-breakpoint
 CREATE INDEX idx_games_series ON games(json_extract(state,'$.seriesId'));
 --> statement-breakpoint
-CREATE TRIGGER series_reserve AFTER INSERT ON series WHEN NEW.status='active'
-BEGIN
-  INSERT INTO series_seats(player_id,series_id) VALUES (NEW.player_one,NEW.id),(NEW.player_two,NEW.id);
-END;
+CREATE TRIGGER series_reserve AFTER INSERT ON series WHEN NEW.status='active' BEGIN INSERT INTO series_seats(player_id,series_id) VALUES (NEW.player_one,NEW.id),(NEW.player_two,NEW.id); END;
 --> statement-breakpoint
 -- The insert and both seat reservations succeed together or roll back together.
-CREATE TRIGGER games_series_guard BEFORE INSERT ON games
-BEGIN
-  SELECT CASE WHEN EXISTS (
-    SELECT 1 FROM series_seats WHERE player_id IN (json_extract(NEW.state,'$.white'),json_extract(NEW.state,'$.black'))
-    AND series_id IS NOT json_extract(NEW.state,'$.seriesId')
-  ) THEN RAISE(ABORT,'series seat is reserved') END;
-  SELECT CASE WHEN json_extract(NEW.state,'$.seriesId') IS NOT NULL AND NOT EXISTS (
-    SELECT 1 FROM series s WHERE s.id=json_extract(NEW.state,'$.seriesId') AND s.status='active'
-    AND s.player_one IN (json_extract(NEW.state,'$.white'),json_extract(NEW.state,'$.black'))
-    AND s.player_two IN (json_extract(NEW.state,'$.white'),json_extract(NEW.state,'$.black'))
-    AND s.minutes=json_extract(NEW.state,'$.minutes') AND s.increment=json_extract(NEW.state,'$.increment')
-    AND json_extract(NEW.state,'$.seriesRound')=s.one_wins+s.two_wins+1
-  ) THEN RAISE(ABORT,'invalid series round') END;
-END;
+CREATE TRIGGER games_series_guard BEFORE INSERT ON games BEGIN SELECT RAISE(ABORT,'series seat is reserved') WHERE EXISTS ( SELECT 1 FROM series_seats WHERE player_id IN (json_extract(NEW.state,'$.white'),json_extract(NEW.state,'$.black')) AND series_id IS NOT json_extract(NEW.state,'$.seriesId') ); SELECT RAISE(ABORT,'invalid series round') WHERE json_extract(NEW.state,'$.seriesId') IS NOT NULL AND NOT EXISTS ( SELECT 1 FROM series s WHERE s.id=json_extract(NEW.state,'$.seriesId') AND s.status='active' AND s.player_one IN (json_extract(NEW.state,'$.white'),json_extract(NEW.state,'$.black')) AND s.player_two IN (json_extract(NEW.state,'$.white'),json_extract(NEW.state,'$.black')) AND s.minutes=json_extract(NEW.state,'$.minutes') AND s.increment=json_extract(NEW.state,'$.increment') AND json_extract(NEW.state,'$.seriesRound')=s.one_wins+s.two_wins+1 ); END;
 --> statement-breakpoint
-CREATE TRIGGER games_series_insert AFTER INSERT ON games WHEN json_extract(NEW.state,'$.seriesId') IS NOT NULL
-BEGIN
-  UPDATE series SET version=version+1 WHERE id=json_extract(NEW.state,'$.seriesId');
-END;
+CREATE TRIGGER games_series_insert AFTER INSERT ON games WHEN json_extract(NEW.state,'$.seriesId') IS NOT NULL BEGIN UPDATE series SET version=version+1 WHERE id=json_extract(NEW.state,'$.seriesId'); END;
 --> statement-breakpoint
-CREATE TRIGGER games_series_result AFTER UPDATE OF state ON games
-WHEN json_extract(NEW.state,'$.seriesId') IS NOT NULL
-AND json_extract(OLD.state,'$.status')<>'finished' AND json_extract(NEW.state,'$.status')='finished'
-BEGIN
-  -- IIF avoids nested CASE/END tokens confusing D1/Wrangler's SQL splitter.
-  UPDATE series SET
-    one_wins=one_wins+IIF(json_extract(NEW.state,'$.winner')=player_one,1,0),
-    two_wins=two_wins+IIF(json_extract(NEW.state,'$.winner')=player_two,1,0),
-    draws=draws+IIF(json_extract(NEW.state,'$.winner') IS NULL,1,0),
-    version=version+1
-  WHERE id=json_extract(NEW.state,'$.seriesId') AND status='active';
-  UPDATE series SET status='finished',finished_at=NEW.finished_at,
-    winner=IIF(one_wins>two_wins,player_one,player_two)
-  WHERE id=json_extract(NEW.state,'$.seriesId') AND status='active'
-    AND (one_wins>best_of/2 OR two_wins>best_of/2);
-END;
+CREATE TRIGGER games_series_result AFTER UPDATE OF state ON games WHEN json_extract(NEW.state,'$.seriesId') IS NOT NULL AND json_extract(OLD.state,'$.status')<>'finished' AND json_extract(NEW.state,'$.status')='finished' BEGIN UPDATE series SET one_wins=one_wins+IIF(json_extract(NEW.state,'$.winner')=player_one,1,0), two_wins=two_wins+IIF(json_extract(NEW.state,'$.winner')=player_two,1,0), draws=draws+IIF(json_extract(NEW.state,'$.winner') IS NULL,1,0), version=version+1 WHERE id=json_extract(NEW.state,'$.seriesId') AND status='active'; UPDATE series SET status='finished',finished_at=NEW.finished_at, winner=IIF(one_wins>two_wins,player_one,player_two) WHERE id=json_extract(NEW.state,'$.seriesId') AND status='active' AND (one_wins>best_of/2 OR two_wins>best_of/2); END;
 --> statement-breakpoint
-CREATE TRIGGER games_series_pending AFTER UPDATE OF state ON games
-WHEN json_extract(NEW.state,'$.seriesId') IS NOT NULL AND json_extract(OLD.state,'$.status')='pending'
-AND json_extract(NEW.state,'$.status') IN ('active','cancelled')
-BEGIN
-  UPDATE series SET version=version+1 WHERE id=json_extract(NEW.state,'$.seriesId') AND status='active';
-  UPDATE series SET status='cancelled',finished_at=NEW.finished_at
-  WHERE id=json_extract(NEW.state,'$.seriesId') AND status='active'
-    AND json_extract(NEW.state,'$.status')='cancelled' AND one_wins+two_wins+draws=0;
-END;
+CREATE TRIGGER games_series_pending AFTER UPDATE OF state ON games WHEN json_extract(NEW.state,'$.seriesId') IS NOT NULL AND json_extract(OLD.state,'$.status')='pending' AND json_extract(NEW.state,'$.status') IN ('active','cancelled') BEGIN UPDATE series SET version=version+1 WHERE id=json_extract(NEW.state,'$.seriesId') AND status='active'; UPDATE series SET status='cancelled',finished_at=NEW.finished_at WHERE id=json_extract(NEW.state,'$.seriesId') AND status='active' AND json_extract(NEW.state,'$.status')='cancelled' AND one_wins+two_wins+draws=0; END;
 --> statement-breakpoint
-CREATE TRIGGER series_cannot_abandon_active BEFORE UPDATE OF status ON series
-WHEN NEW.status='cancelled' AND EXISTS (
-  SELECT 1 FROM games WHERE json_extract(state,'$.seriesId')=NEW.id AND json_extract(state,'$.status')='active'
-)
-BEGIN SELECT RAISE(ABORT,'finish the active game before ending the series'); END;
+CREATE TRIGGER series_cannot_abandon_active BEFORE UPDATE OF status ON series WHEN NEW.status='cancelled' AND EXISTS ( SELECT 1 FROM games WHERE json_extract(state,'$.seriesId')=NEW.id AND json_extract(state,'$.status')='active' ) BEGIN SELECT RAISE(ABORT,'finish the active game before ending the series'); END;
 --> statement-breakpoint
-CREATE TRIGGER series_release AFTER UPDATE OF status ON series WHEN OLD.status='active' AND NEW.status<>'active'
-BEGIN
-  DELETE FROM series_seats WHERE series_id=NEW.id;
-  UPDATE games SET state=json_set(state,'$.status','cancelled','$.reason','Series ended','$.finishedAt',NEW.finished_at),
-    version=version+1,active_key=NULL,finished_at=NEW.finished_at
-  WHERE json_extract(state,'$.seriesId')=NEW.id AND json_extract(state,'$.status')='pending';
-END;
+CREATE TRIGGER series_release AFTER UPDATE OF status ON series WHEN OLD.status='active' AND NEW.status<>'active' BEGIN DELETE FROM series_seats WHERE series_id=NEW.id; UPDATE games SET state=json_set(state,'$.status','cancelled','$.reason','Series ended','$.finishedAt',NEW.finished_at), version=version+1,active_key=NULL,finished_at=NEW.finished_at WHERE json_extract(state,'$.seriesId')=NEW.id AND json_extract(state,'$.status')='pending'; END;
 --> statement-breakpoint
 CREATE TABLE practice_puzzles (
   id TEXT PRIMARY KEY NOT NULL,

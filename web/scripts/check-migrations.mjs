@@ -43,7 +43,7 @@ export function checkMigrations(directory = defaultDirectory) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const result = checkMigrations(process.argv[2] ? resolve(process.argv[2]) : defaultDirectory);
-    console.log(`Migration preflight passed: ${result.migrations} migrations, ${result.statements} Wrangler-parsed statements. No remote database was accessed.`);
+    console.log(`Local migration preflight passed: ${result.migrations} migrations, ${result.statements} Wrangler-parsed statements. Cloudflare validates remote SQL separately during deployment.`);
   } catch (error) {
     console.error(`Migration preflight failed: ${error.message}`);
     process.exitCode = 1;

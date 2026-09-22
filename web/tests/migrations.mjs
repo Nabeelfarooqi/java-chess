@@ -33,14 +33,14 @@ try {
   const snapshot = () => Object.fromEntries(tables.map(name => [name, db.prepare(`SELECT * FROM "${name}" ORDER BY rowid`).all()]));
   const before = snapshot();
 
-  // Restore the ambiguous CASE spelling responsible for the reported deployment failure.
+  // This reproduces a LOCAL splitter defect; remote D1 parses the complete SQL itself.
   const broken = clubSource.replace('winner=IIF(one_wins>two_wins,player_one,player_two)',
     'winner=CASE WHEN one_wins>two_wins THEN player_one ELSE player_two END');
   assert.notEqual(broken, clubSource);
   assert.throws(() => applyMigration(db, clubName, broken), /0007_club_expansion\.sql, statement \d+: incomplete input/);
   assert.equal(db.prepare("SELECT count(*) AS n FROM sqlite_schema WHERE name='series'").get().n, 0);
   assert.deepEqual(snapshot(), before);
-  console.log('PASS Preflight catches the original incomplete-input defect and rolls back the failed migration');
+  console.log('PASS Preflight catches the local incomplete-input defect and rolls back the failed migration');
 
   applyMigration(db, clubName, clubSource);
   assert.deepEqual(snapshot(), before);
@@ -48,6 +48,31 @@ try {
   assert.equal(db.prepare("SELECT count(*) AS n FROM sqlite_schema WHERE type='trigger' AND name LIKE '%series%'").get().n, 7);
   assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
   console.log('PASS Corrected retry preserves player/PIN data, sessions, active seats, history, spectator access and queued notifications');
+
+  // Preserve the remote-query compatibility form documented in workers-sdk #4998/#15044.
+  const triggerBlocks = clubSource.split('--> statement-breakpoint').filter(sql => sql.includes('CREATE TRIGGER '));
+  assert.equal(triggerBlocks.length, 7);
+  for (const block of triggerBlocks) {
+    const trigger = block.slice(block.indexOf('CREATE TRIGGER ')).trim();
+    assert.doesNotMatch(trigger, /[\r\n]|\bCASE\b/);
+  }
+
+  db.prepare("DELETE FROM games WHERE id='in-progress'").run();
+  db.prepare("INSERT INTO series(id,player_one,player_two,best_of,minutes,increment,created_at) VALUES ('guard-test','one','two',3,5,0,300)").run();
+  const round = { white: 'one', black: 'two', status: 'pending', seriesId: 'guard-test', seriesRound: 1, minutes: 5, increment: 0 };
+  const insert = changes => db.prepare('INSERT INTO games(id,active_key,state,version,created_at) VALUES (?,?,?,?,?)')
+    .run('next-round', 1, JSON.stringify({ ...round, ...changes }), 0, 300);
+  assert.throws(() => insert({ seriesId: null }), /series seat is reserved/);
+  for (const invalid of [{ seriesRound: 2 }, { minutes: 10 }, { increment: 2 }, { black: 'gud' }]) {
+    assert.throws(() => insert(invalid), /invalid series round/);
+  }
+  assert.equal(db.prepare("SELECT version FROM series WHERE id='guard-test'").get().version, 0);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM game_seats').get().n, 0);
+  insert({});
+  assert.equal(db.prepare("SELECT version FROM series WHERE id='guard-test'").get().version, 1);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM game_seats').get().n, 2);
+  assert.equal(db.prepare("SELECT count(*) AS n FROM notification_outbox WHERE id='next-round:challenge'").get().n, 1);
+  console.log('PASS Single-line triggers keep seat, round, clock and participant guards and accept valid rounds');
 } finally {
   db.close();
 }

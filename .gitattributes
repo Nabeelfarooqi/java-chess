@@ -1,0 +1,2 @@
+# D1's remote query parser needs LF inside migration trigger bodies.
+*.sql text eol=lf

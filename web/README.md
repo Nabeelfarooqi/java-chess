@@ -105,18 +105,23 @@ Keep using the same D1 database. Creating or selecting a different database woul
 
 ### Recover from the 0007 migration error
 
-If the club update stopped at `0007_club_expansion.sql` with `incomplete input: SQLITE_ERROR [code: 7500]`, its series result trigger contained `CASE`/`END` spelling that the Wrangler SQL splitter misread. The fix uses equivalent `IIF` expressions and keeps the migration's name so the failed update can be retried. The prior integration tests executed whole SQL files, which missed this parsing problem; preflight and Workers-runtime tests now use Wrangler's actual statement boundaries.
+If the club update stopped at `0007_club_expansion.sql` with `incomplete input: SQLITE_ERROR [code: 7500]`, pull the latest follow-up repair. The first fix replaced a `CASE` expression that broke the **local** Wrangler splitter, but did not establish that remote D1 would accept the migration. `migrations apply --remote` sends the whole SQL file to Cloudflare's query endpoint, where it is parsed again; it does not use the local splitter.
+
+Cloudflare documents [remote failures for multiline triggers](https://github.com/cloudflare/workers-sdk/issues/4998) and a [remote-specific CRLF parsing fix](https://github.com/cloudflare/workers-sdk/pull/15044). The pinned Wrangler 4.92.0 predates that fix. The follow-up keeps all seven `0007` triggers on single lines, replaces the remaining guard `CASE` expressions with equivalent `SELECT RAISE ... WHERE` statements, and adds `.gitattributes` to enforce LF for SQL checkouts. Do not reformat these triggers into multiline bodies without rechecking remote compatibility. These changes address the documented compatibility risks; the exact cause on your Mac still requires its latest command output.
 
 Stop the iMessage sender with Ctrl+C if it is running, then run:
 
 ```sh
 cd ~/Projects/java-chess/web &&
 git pull --ff-only &&
+git log -1 --oneline &&
 npm run cloudflare:deploy &&
 npm run imessage:start
 ```
 
 Cloudflare [rolls back a failed migration](https://developers.cloudflare.com/d1/wrangler-commands/#d1-migrations-apply), keeping earlier successful migrations. No database reset, manual migration-table changes, setup rerun, or PIN rotation is needed. An installation that already applied `0007` skips it as usual; the trigger's scoring behavior is unchanged. The script publishes the Worker only after migrations succeed. Local verification covers parsing, rollback/retry, and preservation of existing data; it does not connect to your production database.
+
+If it still fails, include the printed commit line, the migration preflight result, and the complete final error block when reporting it. Those identify the checked-out revision and whether the failure happened locally or at Cloudflare.
 
 ### Existing D1 database
 
@@ -297,7 +302,7 @@ npm run build
 
 The club release passes 66 integration checks, real Workers WebSocket/series tests, 24 mocked messaging checks, component presentation tests, offline-cache/icon/sound tests, subdomain regression tests, TypeScript checking, and a production build. The remote preview browser could not reach the local preview, so this release does not claim an on-device iPhone visual/audio/install verification. Test iPhone installation and real BlueBubbles image delivery on your devices after deploying.
 
-Migration checks reproduce the `0007` parsing failure with the old `CASE` spelling, verify rollback and the corrected retry, and preserve sample player/PIN data, sessions, active games/seats, completed records, spectator access, and queued notifications. `npm test` includes these checks. Preflight is an early compatibility check, not a substitute for production D1 validation; the deploy still stops if Cloudflare rejects a migration.
+Migration checks reproduce the **local** `0007` parsing failure with the old `CASE` spelling, verify rollback and the corrected retry, and preserve sample player/PIN data, sessions, active games/seats, completed records, spectator access, and queued notifications. They also check the single-line compatibility format and directly exercise valid rounds and invalid seat, round, clock and participant combinations after removing guard `CASE` blocks. `npm test` includes these checks. Preflight is an early compatibility check, not a substitute for production D1 validation; the deploy still stops if Cloudflare rejects a migration.
 
 The repair was also verified with the actual Wrangler 4.92.0 CLI against a disposable local D1 database: the old trigger failed, its schema changes rolled back, the corrected migration applied while retaining sample PIN/session data, and a repeat apply correctly found nothing pending. A separate deployment check confirmed that invalid SQL stops the script before its build or remote commands.
 
