@@ -50,6 +50,13 @@
       "when": 1790085545108,
       "tag": "0006_spectator_access",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1790093995157,
+      "tag": "0007_club_expansion",
+      "breakpoints": true
     }
   ]
 }

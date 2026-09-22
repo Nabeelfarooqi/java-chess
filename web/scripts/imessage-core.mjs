@@ -27,7 +27,7 @@ export function cloudBridge(config, fetcher = fetch) {
     return response.json();
   };
 }
-export async function deliver(job, config, { bb, post, journal }) {
+export async function deliver(job, config, { bb, post, journal, memes }) {
   if (!job || !['challenge', 'result'].includes(job.kind) || typeof job.id !== 'string' || typeof job.text !== 'string') throw new Error('Invalid chess event.');
   const ack = (status, detail = '') => post({ action: 'ack', id: job.id, leaseToken: job.leaseToken, status, detail });
   const chatGuid = job.kind === 'result' ? config.groupChatGuid : config.targets[job.recipientId];
@@ -35,11 +35,16 @@ export async function deliver(job, config, { bb, post, journal }) {
   if (chatKind({ guid: chatGuid }) !== (job.kind === 'result' ? 'group' : 'direct')) { await ack('needs_review', 'Destination must be an existing iMessage or Messages auto chat of the correct type'); return 'needs_review'; }
   const previous = journal.get(job.id);
   const state = previous || { chatGuid, parts: {} };
-  if ((job.attempts > 1 && !previous) || state.chatGuid !== chatGuid || state.parts.text?.status === 'sending') {
+  if ((job.attempts > 1 && !previous) || state.chatGuid !== chatGuid || (state.parts.text?.status === 'sending' || (state.meme && state.parts.image?.status === 'sending'))) {
     await ack('needs_review', 'Check Messages before retrying: previous delivery could not be confirmed'); return 'needs_review';
   }
-  // Text only until the owner chooses the meme pools. Keep the delivery journal
-  // compatible with older entries, including an already-confirmed result text.
+  // Freeze a selection before the first send. Old journal entries stay text-only;
+  // a retry never adds a newly enabled image to an earlier text announcement.
+  if (!previous) {
+    try { state.meme = memes ? await memes.choose(job) : null; }
+    catch { await ack('needs_review','A selected meme could not be prepared. Check the local pool before retrying.'); return 'needs_review'; }
+    journal.put(job.id,state);
+  }
   if (state.parts.text?.status !== 'done') {
     const tempGuid = randomUUID(); state.parts.text = { status: 'sending', tempGuid }; journal.put(job.id, state);
     try {
@@ -48,6 +53,19 @@ export async function deliver(job, config, { bb, post, journal }) {
       await ack('needs_review', blueBubblesFailureDetail(error)+' Check Messages before retrying.'); return 'needs_review';
     }
     state.parts.text.status = 'done'; journal.put(job.id, state);
+  }
+  if (state.meme && state.parts.image?.status !== 'done') {
+    let png;
+    try { if (!memes || !(await memes.settings()).enabled) state.parts.image={status:'done',skipped:true};
+      else png=await memes.read(state.meme);
+    } catch { await ack('needs_review','Saved meme could not be read. Text is already confirmed; restore the image before retrying.'); return 'needs_review'; }
+    if (png) {
+      const tempGuid=randomUUID();state.parts.image={status:'sending',tempGuid};journal.put(job.id,state);
+      try { await bb.image(chatGuid,png,tempGuid); }
+      catch { await ack('needs_review','BlueBubbles did not confirm image delivery. Text is already confirmed. Check Messages before retrying.');return 'needs_review'; }
+      state.parts.image.status='done';
+    }
+    journal.put(job.id,state);
   }
   // An acknowledgement failure can be retried without sending completed parts again.
   await ack('sent'); return 'sent';

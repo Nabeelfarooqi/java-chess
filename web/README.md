@@ -34,11 +34,11 @@ The address follows [Cloudflare's Worker/account URL format](https://developers.
 - PIN-linked characters: Walan’s green room, Gud’s red room, and Saif’s blue room, with their portraits, themed board halves, and character kings. Other rivals keep their own names and neutral artwork.
 - Personal display names. One PIN belongs to each player; do not share your own PIN.
 
-Optional iMessage notifications use BlueBubbles on your Mac: challenge links go to the chosen rival’s direct chat, and finished games send a text result with the updated pair record to your existing group. Images and memes are paused. Notifications stay off until you explicitly complete setup and run the sender. See [iMessage setup](IMESSAGE_SETUP.md).
+Optional iMessage notifications use BlueBubbles on your Mac: challenge links go to the chosen rival’s direct chat, and finished games send a text result with the updated pair record to your existing group. Images and memes start paused; choose, preview, and enable your local pools with `npm run imessage:memes`. Notifications stay off until you explicitly complete setup and run the sender. See [iMessage setup](IMESSAGE_SETUP.md).
 
 ## Smoother play and appearance
 
-The header shows **Live** with the last WebSocket round-trip ping, **Backup sync** when HTTP is covering a reconnect, or **Reconnecting** when the game API cannot be reached. The tooltip also gives the last move-confirmation time, which includes server work and is separate from socket ping. These are actual samples, not a promised latency target.
+The header shows **Live** with the last WebSocket round-trip ping, **Backup sync** when HTTP is covering a reconnect, or **Reconnecting** when the game API cannot be reached. Tap it for the last move-confirmation time, which includes server work and is separate from socket ping, plus rival-display acknowledgement samples. These are actual samples, not a promised latency target.
 
 Dragging updates once per animation frame and reuses board bounds until scrolling or resizing changes them. Unchanged game versions retain their object identity, and piece artwork is memoized. Tapped and opponent moves slide into place in 130 ms; castling animates both pieces. Dropped pieces settle immediately, and reduced-motion preferences disable those animations. Server validation and clock rules still apply.
 
@@ -47,6 +47,31 @@ On phones, larger portraits, a visible connection meter, and an outlined active 
 Challenges show both characters. A finished game shows the winner or draw, the saved pair record, **Rematch** with the same clock, Game review, and PGN. A rematch sends a fresh challenge that the opponent must accept. The record card waits for the finished game's history update before showing updated totals.
 
 Character images use committed WebP delivery copies: about **291 KiB combined instead of 1,744 KiB** (83% smaller). Original files remain available; dimensions and Saif's alpha transparency are preserved. To regenerate after replacing source artwork, run `node scripts/prepare-characters.mjs` from `web` and commit the resulting WebP files. This is transfer-size reduction, not a measured claim about live game latency.
+
+## Club expansion: what to use next
+
+| Feature | Where it is | Behavior |
+| --- | --- | --- |
+| Home-screen app | Club or Room settings → Add Rival Chess to home screen | Install prompt when supported; Safari Share → Add to Home Screen on iPhone. Same link and PIN. |
+| Sounds | Room settings → Game sounds | Move, capture, check, result, and one alert when your clock reaches 10 seconds. Mute, volume, and a test button are saved in this browser. |
+| Friends lobby | Club | Available, away, offline, playing, in a challenge, or between series rounds. Pick Challenge to return to the clock picker. |
+| Leaderboard | Club | All-time W/L/D, win percentage, current/best winning streak, and most-played rival. Ranked by wins, then win percentage and games; this is not Elo. |
+| Best of 3 / 5 | Play → Match format | First to 2 / 3 wins. Draws count in normal records but replay the series round. Each round needs the rival’s acceptance. |
+| Mistake practice | Game review → Save my mistakes; then Club → Practice my mistakes | Saves up to 40 of your reviewed mistakes/blunders, then lets you find the engine move with hints, reveal, and saved completion. |
+| Meme pools | Mac terminal → `npm run imessage:memes` | Your selected local win/loss/draw images; preview and explicitly enable them for future group results. Empty pools stay text-only. |
+| Move delivery details | Tap the Live / connection indicator | Separate socket ping, server confirmation, and rival display plus acknowledgement samples. |
+
+**Update an existing installation:** pull and run `npm run cloudflare:deploy`. Migration `0007_club_expansion.sql` adds presence, series, and practice storage. It preserves all existing accounts, PIN hashes, sessions, active games, and match results. Do not rerun the initial PIN generator. Stop the Mac sender with Ctrl+C before pulling and start it again afterward so it loads the updated delivery code. No new dependencies are needed for this release.
+
+**Series:** both participants are reserved until someone wins the series or ends it between games. Colors alternate each actual game, including after a draw. Both can request the next round; a transaction and version check ensure only one challenge wins the race. Ending a series cancels any waiting round without declaring a series winner and keeps completed games in the normal record. An active game must finish first. Declining/expiring the initial challenge cancels the untouched series; a later declined/expired round leaves the series available to continue or end. The result card offers Next round or Rematch series as appropriate. Group announcements remain per game with the normal head-to-head record.
+
+**Presence:** visible tabs heartbeat every 25 seconds, with at most one write per session per 15 seconds. A valid session seen within 45 seconds is online, within three minutes is away, otherwise offline. This is approximate browser presence, not a guarantee that a person is looking at their screen. Club refreshes every 30 seconds while visible; normal room snapshots also refresh presence. Multiple tabs can keep the same profile online. No contact addresses or session details are exposed.
+
+**Practice:** positions are reconstructed from your saved finished game on the server. Only your own moves can be imported, and the proposed alternative must be legal. Engine evaluations come from your local review; the server does not independently run Stockfish. The goal is the saved engine choice, not proof that every other move is bad. Another good move can exist, and a deeper review can change the answer. A changed answer resets completion; saving the same answer preserves it. At most 100 positions are shown at once, with unsolved ones first. Practice and review close while a live game/challenge needs attention. Full JSON exports now also include your series history and all practice positions/progress.
+
+**Install and offline behavior:** the build generates install icons from the bundled, attributed knight SVG. The service worker caches only the public offline notice, manifest, and install icons. It never caches authenticated HTML, API replies, PINs, or game state. Offline opening shows a reconnect notice; online play and clocks still require the server. Installation and audio playback depend on browser support; audio unlocks after interaction with the page. A muted or background tab does not play sounds.
+
+**Delivery measurements:** a move gets a random measurement ID. After the rival’s visible tab commits the position and passes two animation frames, it sends an authenticated acknowledgement through the same player hubs. Only a receipt for a move actually delivered to that socket is accepted, once, with a 30-second expiry. The sender measures elapsed time on its own monotonic clock, retaining up to 20 samples for last/median/95th percentile. This includes the acknowledgement’s return trip; it is an upper-bound-style diagnostic, not exact one-way delay or proof that the person saw the move. Hidden tabs, HTTP-only recovery, and expired samples are excluded. Samples stay in browser memory and do not adjust chess clocks.
 
 ## Deploy to your own Cloudflare account
 
@@ -152,11 +177,11 @@ If setup fails with `Chess bridge returned HTTP 401` after `SAVE`, run `npm run 
 
 If a group result pauses as `needs_review`, `imessage:status` and the sender Terminal report sanitized HTTP, AppleScript, or Messages error details. Check the destination conversation before a manual retry; unknown outcomes are never automatically resent. Pull/restart the Mac scripts for this diagnostic update; old entries retain their original generic detail. See [status and interrupted sends](IMESSAGE_SETUP.md#status-and-interrupted-sends).
 
-A new challenge sends the challenger’s name, time control, and site link privately to the opponent’s mapped direct chat. A finished game sends one text announcement to the chosen existing group: who beat whom (or drew), their updated head-to-head wins and draws, and the time control/result reason. Messages use **Nabeel** for the saved Walan identity and **Usman** for Gud; site names and PIN ownership stay unchanged. The group result contains no site link. Images, result cards, and meme pools are paused until the owner chooses to enable them later. No image is rendered or attached by the sender, including when processing an older queued result.
+A new challenge sends the challenger’s name, time control, and site link privately to the opponent’s mapped direct chat. A finished game sends one text announcement to the chosen existing group: who beat whom (or drew), their updated head-to-head wins and draws, and the time control/result reason. Messages use **Nabeel** for the saved Walan identity and **Usman** for Gud; site names and PIN ownership stay unchanged. The group result contains no site link. Images stay off until you choose and enable your local meme pools. Newly enabled images apply only to future results; existing journal entries remain text-only. See the meme-pool commands in [iMessage setup](IMESSAGE_SETUP.md#meme-pools).
 
 The pair record includes the announced game and earlier finished games between those same two players, regardless of their colors. Other opponents' results are excluded. A queued announcement uses the record as of that game's finish time. Draws are listed separately from wins.
 
-Owner-approved group text rotates between four win phrases (alternating "gooned on" and "beat [loser's name]’s ass") and three draw phrases. Rotation is per pair, based on saved results, so retries retain their wording. Private challenge text remains a straightforward invitation. Templates live in `resultOpening` in `lib/server/imessage.ts`; no image or AI service is used.
+Owner-approved group text rotates between four win phrases (alternating "gooned on" and "beat [loser's name]’s ass") and three draw phrases. Rotation is per pair, based on saved results, so retries retain their wording. Private challenge text remains a straightforward invitation. Templates live in `resultOpening` in `lib/server/imessage.ts`; no AI service is used. Optional images come only from your selected local pools.
 
 For this club, map **Gud to Usman's direct conversation**, **Saif to Saif's direct conversation**, and select **FRQ** as the results group. Check the listed participants before saving; the code never guesses chat destinations from a name. Walan remains Nabeel and can skip self-notifications. This integration sends through the Apple account signed into Messages on the Mac. It does not create a separate bot identity.
 
@@ -253,6 +278,8 @@ npm run typecheck
 npm run build
 ```
 
+The club release passes 66 integration checks, real Workers WebSocket/series tests, 24 mocked messaging checks, component presentation tests, offline-cache/icon/sound tests, subdomain regression tests, TypeScript checking, and a production build. The remote preview browser could not reach the local preview, so this release does not claim an on-device iPhone visual/audio/install verification. Test iPhone installation and real BlueBubbles image delivery on your devices after deploying.
+
 Tests use disposable local SQLite databases and the local Workers/Miniflare runtime bundled with Wrangler. They verify access control, CSRF protection, rate limiting, multiple PIN identities, participant authorization, independent pair scores, safe upgrades and character renaming of existing records, character ownership across color swaps, legal moves, special moves, checkmate, draws, clock expiry, concurrent writes, session revocation, persistence after reopening the database, castling on both sides for both colors, premove legality, stale response handling, stable duplicate-game updates, clock-aware polling, result-card pairing/freshness, connection status, review classification, and authenticated WebSocket delivery/revocation. They also check six-digit PIN replacement and duplicate rejection, notification migrations/leases, stale challenge suppression, result scores, uncertain sends, retry journals, documented BlueBubbles request formats, and PNG rendering. Spectator checks cover disabled access, code collisions, origin/rate limits, live game selection, blocked player/notification actions, persistence, session expiry, rotation/disable/logout, and denial of player WebSocket access. They do not contact your Cloudflare account or send real messages. Live Apple Messages permissions and delivery must be checked on the Mac after setup.
 
 The app uses React, TypeScript, Vinext, chess.js, Cloudflare D1, WebSocket Durable Objects, and a separately loaded Stockfish browser worker. The original Java Swing game remains in the repository root and opens normally in IntelliJ.
@@ -273,6 +300,10 @@ The app uses React, TypeScript, Vinext, chess.js, Cloudflare D1, WebSocket Durab
 | `lib/server/imessage.ts`, `drizzle/0004_imessage_pin_tools.sql` | Authenticated notification queue, committed-game triggers, and per-player PIN revocation. |
 | `scripts/set-pin.mjs`, `cloudflare-admin.mjs` | Hidden personal PIN replacement and Cloudflare administration. |
 | `scripts/imessage-*.mjs`, `bluebubbles-client.mjs`, `winner-card.mjs` | Local setup, sender, delivery journal, and result image rendering. |
+| `lib/club.ts`, `lib/series.ts`, `drizzle/0007_club_expansion.sql` | Presence, leaderboard calculations, atomic series seats/results and practice storage. |
+| `app/club-hub.tsx`, `app/series-banner.tsx`, `app/practice-room.tsx`, `lib/server/practice.ts` | Club interface, series controls, and private practice API. |
+| `app/use-game-sounds.ts`, `lib/sounds.ts`, `app/install-app.tsx`, `public/sw.js` | Gesture-unlocked sounds, home-screen installation and public-only offline fallback. |
+| `scripts/meme-pool.mjs`, `scripts/meme-cli.mjs` | Local pool selection, prepared images, preview and enable/pause controls. |
 | `scripts/prepare-engine.mjs` | Pinned engine assets, integrity checks, and license/source attribution. |
 
 ## Change descriptions

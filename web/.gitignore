@@ -57,3 +57,5 @@ cloudflare.local.json
 
 # Private iMessage bridge configuration, contacts, and delivery journal
 .imessage/
+
+/public/app-icons/

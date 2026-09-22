@@ -28,7 +28,7 @@ export async function notificationPayload(db: D1Database, job: JobRow, origin: s
     const white = roster.find(p => p.id === game.white), black = roster.find(p => p.id === game.black);
     if (!white || !black) return null;
     const time = `${game.minutes}+${game.increment}`;
-    const common = { id: job.id, kind: job.kind, gameId: game.id, leaseToken: job.lease_token, attempts: job.attempts };
+    const common = { id: job.id, kind: job.kind, gameId: game.id, leaseToken: job.lease_token, attempts: job.attempts, createdAt: job.created_at };
     if (job.kind === 'challenge') {
         const challenger = game.challenger === white.id ? white : black, rival = challenger.id === white.id ? black : white;
         return { ...common, recipientId: rival.id, text: `${messageName(challenger)} challenged you to ${time} chess.\nPlay: ${origin}/` };

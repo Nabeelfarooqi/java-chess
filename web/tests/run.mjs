@@ -7,7 +7,7 @@ import {newPlayer} from '../scripts/player-pin.mjs';
 import {pinUpdate} from '../scripts/set-pin.mjs';
 import {spectatorPinUpdate} from '../scripts/spectator-pin.mjs';
 const build=new URL('../.test-build/',import.meta.url);mkdirSync(build,{recursive:true});
-const files=['lib/connection.ts','lib/server/spectator.ts','lib/spectator.ts','lib/material.ts','lib/server/imessage.ts','lib/characters.ts','lib/board.ts','lib/room-update.ts','lib/review.ts','lib/game.ts','lib/server/auth.ts','lib/server/store.ts','lib/server/live.ts','lib/server/api.ts','app/api/room/route.ts'];
+const files=['lib/sounds.ts','lib/connection.ts','lib/server/spectator.ts','lib/spectator.ts','lib/material.ts','lib/server/imessage.ts','lib/characters.ts','lib/board.ts','lib/room-update.ts','lib/review.ts','lib/club.ts','lib/series.ts','lib/server/practice.ts','lib/game.ts','lib/server/auth.ts','lib/server/store.ts','lib/server/live.ts','lib/server/api.ts','app/api/room/route.ts'];
 for(const file of files){let source=readFileSync(new URL('../'+file,import.meta.url),'utf8');
  if(file==='app/api/room/route.ts')source=source.replace("'cloudflare:workers'","'../../../env.cjs'").replaceAll("'@/lib/","'../../../lib/");
  source=source.replace(/from '(\.{1,2}\/[^']+)'/g,(_,path)=>`from '${path.endsWith('.cjs')?path:path+'.cjs'}'`);
@@ -507,4 +507,105 @@ await check('Rotating or disabling spectator access revokes viewers only; logout
  const finalLogin=await spectator({action:'login',pin:replacementCode});const finalCookie=finalLogin.headers.get('set-cookie').split(';')[0];sql.exec('UPDATE spectator_settings SET pin_hash=NULL WHERE id=1');assert.equal((await spectator(undefined,finalCookie)).status,401);
  assert.deepEqual(sql.prepare('SELECT * FROM players ORDER BY id').all(),players);assert.deepEqual(sql.prepare('SELECT * FROM sessions ORDER BY token_hash').all(),sessions);assert.deepEqual(sql.prepare('SELECT * FROM games ORDER BY id').all(),games);
 });
+const clubStore=new Store(env.DB);
+let clubCookie;
+await check('Club migration preserves existing accounts, PINs, records, sessions and occupied games',()=>{
+ const legacy=new DatabaseSync(':memory:');legacy.exec('PRAGMA foreign_keys=ON');
+ for(const file of readdirSync(new URL('../drizzle/',import.meta.url)).filter(f=>f.endsWith('.sql')&&!f.startsWith('0007')).sort())legacy.exec(readFileSync(new URL('../drizzle/'+file,import.meta.url),'utf8'));
+ legacy.exec("INSERT INTO sessions VALUES('retained','one',9999999999999)");
+ const old=transition(createGame('one','two',5,0),'two','accept',{});legacy.prepare('INSERT INTO games VALUES(?,1,?,0,?,NULL)').run(old.id,JSON.stringify(old),old.createdAt);
+ const tables=['players','sessions','games','game_seats','pin_settings','spectator_settings'];const retained=tables.map(t=>legacy.prepare('SELECT * FROM '+t).all());
+ legacy.exec(readFileSync(new URL('../drizzle/0007_club_expansion.sql',import.meta.url),'utf8'));
+ tables.forEach((t,i)=>assert.deepEqual(legacy.prepare('SELECT * FROM '+t).all(),retained[i]));legacy.close();
+});
+await check('Visible-session presence is private, expires, and cannot be forged for another player',async()=>{
+ sql.exec('DELETE FROM attempts');const login=await POST(request({action:'login',pin:'004281'}));clubCookie=login.headers.get('set-cookie').split(';')[0];
+ assert.equal((await POST(request({action:'presence',player:'two'},clubCookie))).status,200);
+ let roster=(await clubStore.club()).players;assert.equal(roster.find(p=>p.id==='one').presence,'online');assert.equal(roster.find(p=>p.id==='two').presence,'offline');
+ sql.exec('UPDATE player_presence SET last_seen=last_seen-60000');assert.equal((await clubStore.roster()).find(p=>p.id==='one').presence,'away');
+ sql.exec('UPDATE player_presence SET last_seen=last_seen-180000');assert.equal((await clubStore.roster()).find(p=>p.id==='one').presence,'offline');
+ assert.equal((await POST(request({action:'presence'}))).status,401);assert.equal((await get('','?club=1')).status,401);
+ const response=await get(clubCookie,'?club=1');assert.equal(response.status,200);assert.doesNotMatch(JSON.stringify(await response.json()),/pin_hash|token_hash|lastSeen|solution/);
+});
+let seriesGame,seriesState;
+const seriesBody=s=>({seriesId:s.id,seriesVersion:s.version});
+const turn=async(player,action,extra={})=>{seriesGame=await clubStore.act(player,action,{gameId:seriesGame.id,version:seriesGame.version,...extra});return seriesGame;};
+await check('Best-of series creation is atomic, reserves both players, and rejects overlapping games',async()=>{
+ const attempts=await Promise.allSettled([clubStore.create('one','two',5,2,3),clubStore.create('one',usman.id,3,0,5)]);
+ assert.equal(attempts.filter(r=>r.status==='fulfilled').length,1);seriesGame=attempts.find(r=>r.status==='fulfilled').value;
+ seriesState=await clubStore.seriesFor('one');assert.equal(seriesState.version,1);assert.equal(seriesGame.seriesRound,1);
+ assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM series').get().n,1);assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM series_seats').get().n,2);
+ await assert.rejects(clubStore.create('one',usman.id,5,0));await assert.rejects(clubStore.create(usman.id,'two',5,0));
+ await assert.rejects(clubStore.seriesAction(usman.id,'endSeries',seriesBody(seriesState)),/not found/);
+ await assert.rejects(clubStore.seriesAction('one','nextRound',seriesBody(seriesState)),/current game/);
+});
+await check('Draws replay the round, colors alternate, and simultaneous next-round requests save once',async()=>{
+ const initialWhite=seriesGame.white;
+ await turn('two','accept');seriesState=await clubStore.seriesFor('one');await assert.rejects(clubStore.seriesAction('one','endSeries',seriesBody(seriesState)),/active game/);
+ await turn('one','offerDraw');await turn('two','acceptDraw');seriesState=await clubStore.seriesFor('one');assert.equal(seriesState.draws,1);assert.equal(seriesState.oneWins,0);
+ const attempts=await Promise.allSettled([clubStore.seriesAction('one','nextRound',seriesBody(seriesState)),clubStore.seriesAction('two','nextRound',seriesBody(seriesState))]);
+ assert.equal(attempts.filter(r=>r.status==='fulfilled').length,1);seriesGame=attempts.find(r=>r.status==='fulfilled').value;assert.notEqual(seriesGame.white,initialWhite);assert.equal(seriesGame.seriesRound,1);
+ await assert.rejects(clubStore.seriesAction('one','endSeries',seriesBody(seriesState)),/changed/);
+});
+await check('Series results count once, survive reconnect, and release seats after the deciding win',async()=>{
+ const before=(await clubStore.room('one')).headToHead.two.wins;
+ for(let i=0;i<2;i++){
+  await turn(seriesGame.challenger==='one'?'two':'one','accept');const version=seriesGame.version;
+  const attempts=await Promise.allSettled([turn('two','resign'),clubStore.act('two','resign',{gameId:seriesGame.id,version})]);assert.equal(attempts.filter(r=>r.status==='fulfilled').length,1);
+  seriesState=await clubStore.seriesFor('one',seriesGame);assert.equal(seriesState.oneWins,i+1);
+  if(i===0){assert.equal(seriesState.status,'active');assert.equal((await new Store(env.DB).room('two')).series.oneWins,1);seriesGame=await clubStore.seriesAction('one','nextRound',seriesBody(seriesState));assert.equal(seriesGame.seriesRound,2);}
+ }
+ assert.equal(seriesState.status,'finished');assert.equal(seriesState.winner,'one');assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM series_seats').get().n,0);
+ assert.equal((await clubStore.room('one')).headToHead.two.wins,before+2);
+ await assert.rejects(clubStore.seriesAction('one','nextRound',seriesBody(seriesState)));
+});
+await check('Best-of-five needs three wins; ending between rounds retains scores and cancels waiting round',async()=>{
+ seriesGame=await clubStore.create('one','two',1,0,5);await turn('two','accept');await turn('one','resign');seriesState=await clubStore.seriesFor('one');assert.equal(seriesState.twoWins,1);assert.equal(seriesState.status,'active');
+ seriesGame=await clubStore.seriesAction('two','nextRound',seriesBody(seriesState));seriesState=await clubStore.seriesFor('one');const savedWins=(await clubStore.room('two')).stats.two.wins;
+ await clubStore.seriesAction('one','endSeries',seriesBody(seriesState));assert.equal((await clubStore.get(seriesGame.id)).status,'cancelled');assert.equal((await clubStore.room('two')).stats.two.wins,savedWins);assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM series_seats').get().n,0);
+ seriesGame=await clubStore.create('one','two',1,0,5);await turn('two','cancel');assert.equal((await clubStore.room('one')).series.status,'cancelled');
+});
+await check('Best-of-five remains open at two wins and ends exactly at three',async()=>{
+ seriesGame=await clubStore.create('one','two',5,0,5);
+ for(let wins=1;wins<=3;wins++){
+  await turn(seriesGame.challenger==='one'?'two':'one','accept');await turn('two','resign');seriesState=await clubStore.seriesFor('one',seriesGame);
+  assert.equal(seriesState.oneWins,wins);assert.equal(seriesState.status,wins===3?'finished':'active');
+  if(wins<3)seriesGame=await clubStore.seriesAction('two','nextRound',seriesBody(seriesState));
+ }
+ assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM series_seats').get().n,0);
+});
+const {leaderboard,presenceStatus}=require(new URL('lib/club.cjs',build).pathname);
+await check('Leaderboards count only finished matches, break streaks on draws, and keep rival records separate',async()=>{
+ const players=[{id:'a',name:'A'},{id:'b',name:'B'},{id:'c',name:'C'}];
+ const outcomes=[['a','b','a'],['a','b','a'],['a','b',null],['a','c','c'],['a','b','a']].map(([white,black,winner],i)=>({id:String(i),white,black,winner,finishedAt:i}));
+ const a=leaderboard(players,outcomes).find(p=>p.id==='a');assert.deepEqual([a.wins,a.losses,a.draws,a.streak,a.bestStreak,a.mainRival,a.winRate],[3,1,1,1,2,'b',60]);assert.deepEqual(a.rivalry,{wins:3,losses:0,draws:1});
+ const actual=await clubStore.club();for(const leader of actual.leaders){const room=await clubStore.room(leader.id);assert.deepEqual({wins:leader.wins,losses:leader.losses,draws:leader.draws},room.stats[leader.id]);}
+ assert.equal(presenceStatus(null,1000),'offline');assert.equal(presenceStatus(0,45000),'away');assert.equal(presenceStatus(0,180000),'offline');
+});
+let practiceGame,puzzleId;
+await check('Practice imports only legal alternatives to your own moves in finished games and never trusts a client FEN',async()=>{
+ practiceGame=await clubStore.create('one','two',5,0);practiceGame=await clubStore.act('two','accept',{gameId:practiceGame.id,version:0});
+ const white=practiceGame.white,whiteCookie=white==='one'?clubCookie:cookieTwo;
+ practiceGame=await clubStore.act(white,'move',{gameId:practiceGame.id,version:practiceGame.version,from:'f2',to:'f3'});
+ const payload={action:'practiceSave',gameId:practiceGame.id,items:[{ply:0,solution:'e2e4',loss:150,depth:12,fen:'untrusted'}]};
+ assert.equal((await POST(request(payload,whiteCookie))).status,409);
+ practiceGame=await clubStore.act(white,'resign',{gameId:practiceGame.id,version:practiceGame.version});
+ assert.equal((await POST(request(payload,white==='one'?cookieTwo:clubCookie))).status,403);
+ assert.equal((await POST(request({...payload,items:[{...payload.items[0],solution:'e2e5'}]},whiteCookie))).status,400);
+ assert.equal((await POST(request(payload,whiteCookie))).status,200);assert.equal((await POST(request(payload,whiteCookie))).status,200);
+ const data=await (await get(whiteCookie,'?practice=1')).json();assert.equal(data.puzzles.length,1);puzzleId=data.puzzles[0].id;assert.equal(data.puzzles[0].fen,new (require('chess.js').Chess)().fen());assert.equal(data.puzzles[0].solution,undefined);
+ const wrong=await POST(request({action:'practiceAttempt',id:puzzleId,move:'d2d4'},whiteCookie));assert.equal((await wrong.json()).correct,false);
+ const right=await POST(request({action:'practiceAttempt',id:puzzleId,move:'e2e4'},whiteCookie));assert.equal((await right.json()).correct,true);
+ assert.equal((await POST(request({action:'practiceReveal',id:puzzleId},white==='one'?cookieTwo:clubCookie))).status,404);
+ const solved=(await (await get(whiteCookie,'?practice=1')).json()).puzzles[0];assert.equal(solved.attempts,2);assert.ok(solved.solvedAt);
+ const before=JSON.stringify((await clubStore.room(white)).stats);
+ await POST(request(payload,whiteCookie));assert.equal((await (await get(whiteCookie,'?practice=1')).json()).puzzles[0].solvedAt,solved.solvedAt);
+ assert.equal(JSON.stringify((await clubStore.room(white)).stats),before);
+ const backup=await (await get(whiteCookie,'?export=all')).json();assert.ok(backup.practicePuzzles.some(p=>p.id===puzzleId&&p.solution==='e2e4'));assert.ok(backup.seriesHistory.length>0);
+});
+await check('Anonymous and spectator sessions cannot use new presence, series, leaderboard, or practice endpoints',async()=>{
+ for(const suffix of ['?club=1','?practice=1']){assert.equal((await get('',suffix)).status,401);assert.equal((await get(spectatorCookie,suffix)).status,401);}
+ for(const action of ['presence','nextRound','endSeries','practiceSave','practiceAttempt','practiceReveal'])assert.equal((await POST(request({action,id:puzzleId},spectatorCookie))).status,401);
+});
+
 sql.close();console.log(`\n${passed} integration checks passed.`);

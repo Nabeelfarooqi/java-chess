@@ -1,6 +1,7 @@
 import { readFileSync, existsSync, openSync, writeFileSync, closeSync, unlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
+import { MemePool } from './meme-pool.mjs';
 import { BlueBubbles } from './bluebubbles-client.mjs';
 import { Journal, cloudBridge, deliver } from './imessage-core.mjs';
 import { question } from './terminal-input.mjs';
@@ -11,6 +12,7 @@ try {
   if (existsSync(resolve('.cloudflare-subdomain.json')) || existsSync(resolve('.cloudflare-subdomain.lock'))) throw new Error('Finish the address change with npm run cloudflare:subdomain before starting or reviewing the sender.');
   if (!existsSync(configFile)) throw new Error('Run npm run imessage:setup first.');
   const config = JSON.parse(readFileSync(configFile, 'utf8')), post = cloudBridge(config);
+  const memes = new MemePool(resolve(directory,'memes'));
   const journal = new Journal(resolve(directory, 'journal'), config.journalSite || config.site);
   const mode = process.argv[2] || 'start';
   if (mode === 'status') {
@@ -36,7 +38,7 @@ try {
     const bb = new BlueBubbles(config.blueBubblesUrl, config.blueBubblesPassword);
     let stopping = false; for (const signal of ['SIGINT','SIGTERM']) process.on(signal, () => { stopping = true; });
     const awake = process.platform === 'darwin' ? spawn('/usr/bin/caffeinate', ['-i', '-w', String(process.pid)], { stdio: 'ignore' }) : null;
-    console.log('iMessage sender running. Challenge links go privately to the configured DMs; text results and head-to-head records go to the selected group. Images are paused. Ctrl+C stops it. Keep the Mac online and awake.');
+    console.log('iMessage sender running. Challenge links go privately to the configured DMs; text results and head-to-head records go to the selected group. Images follow your local meme-pool setting (imessage:memes). Ctrl+C stops it. Keep the Mac online and awake.');
     let reported = '';
     try { while (!stopping) {
       try {
@@ -47,7 +49,7 @@ try {
             if (body.action === 'ack' && body.status === 'needs_review') console.error(body.detail);
             return post(body);
           };
-          console.log(new Date().toLocaleTimeString(), job.kind, await deliver(job, config, { bb, post: deliveryPost, journal }), job.id);
+          console.log(new Date().toLocaleTimeString(), job.kind, await deliver(job, config, { bb, post: deliveryPost, journal, memes }), job.id);
         }
         reported = '';
       } catch (error) { if (reported !== error.message) console.error(error.message); reported = error.message; }

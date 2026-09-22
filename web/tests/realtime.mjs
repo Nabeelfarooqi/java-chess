@@ -51,13 +51,26 @@ try {
  assert.equal((await mf.dispatchFetch(origin+'/api/spectate',{headers:{Cookie:watcher}})).status,401);
 
  pa=message(a);pb=message(b);
- const moved=await post({action:'move',gameId:g.id,version:g.version,from:'e2',to:'e4',compact:true},one);g=(await moved.json()).game;
+ const moved=await post({action:'move',gameId:g.id,version:g.version,from:'e2',to:'e4',compact:true,moveId:'11111111-2222-3333-4444-555555555555'},one);g=(await moved.json()).game;
  assert.equal((await pb).game.moves[0],'e4');await pa;
+ const receiptPromise=message(a);
+ b.send(JSON.stringify({type:'seen',gameId:'wrong-game',version:g.version,moveId:g.delivery.id}));
+ b.send(JSON.stringify({type:'seen',gameId:g.id,version:g.version,moveId:g.delivery.id}));
+ const receipt=await receiptPromise;assert.equal(receipt.type,'receipt');assert.equal(receipt.actor,'one');assert.equal(receipt.moveId,g.delivery.id);assert.equal(receipt.gameId,g.id);
+ const duplicate=[];const collect=data=>{if(data.toString()!=='pong')duplicate.push(JSON.parse(data.toString()));};a.on('message',collect);
+ b.send(JSON.stringify({type:'seen',gameId:g.id,version:g.version,moveId:g.delivery.id}));
+ await new Promise(resolve=>setTimeout(resolve,150));a.off('message',collect);assert.equal(duplicate.length,0);
+ assert.equal((await post({action:'presence'},two)).status,200);
+ const club=await mf.dispatchFetch(origin+'/api/room?club=1',{headers:{Cookie:two}});assert.equal((await club.json()).players.find(p=>p.id==='two').presence,'online');
  const snapshot=await mf.dispatchFetch(origin+'/api/room?live=1',{headers:{Cookie:two}});const snapshotBody=await snapshot.json();assert.equal(snapshotBody.game.version,g.version);assert.equal(snapshotBody.recent,undefined);
  const revoked=message(a);
  assert.equal((await post({action:'logout'},one)).status,200);pb=message(b);
  await post({action:'resign',gameId:g.id,version:g.version,compact:true},two);
  assert.equal((await pb).game.status,'finished');assert.equal((await revoked).type,'locked');a.close();
  assert.equal((await mf.dispatchFetch(origin+'/api/room?live=1',{headers:{Cookie:one}})).status,401);
- console.log('PASS Real Workers runtime: authenticated WebSockets, origin isolation, challenge/move delivery, compact snapshots, spectator isolation and session revocation');
+ const fresh=await login('19462850');
+ const seriesResponse=await post({action:'create',rival:'two',minutes:3,increment:2,bestOf:3},fresh);assert.equal(seriesResponse.status,200);
+ const seriesRoom=await seriesResponse.json();assert.equal(seriesRoom.series.bestOf,3);assert.equal(seriesRoom.series.version,1);assert.equal(seriesRoom.game.seriesRound,1);
+ const cancelled=await post({action:'cancel',gameId:seriesRoom.game.id,version:0},two);assert.equal((await cancelled.json()).series.status,'cancelled');
+ console.log('PASS Real Workers runtime: authenticated WebSockets, origin isolation, challenge/move delivery, compact snapshots, display receipts with replay protection, presence, atomic series, spectator isolation and session revocation');
 } finally { for(const ws of sockets)try{ws.close()}catch{};await mf.dispose(); }

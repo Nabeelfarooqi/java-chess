@@ -26,6 +26,7 @@ export function MatchResult({ room, game, busy, online, onRematch, onReview, onD
     const outcome = !game.winner ? 'draw' : game.winner === room.me ? 'win' : 'loss';
     const record = room.headToHead[rival];
     const recordReady = room.recent.some(g => g.id === game.id && g.version >= game.version && g.status === 'finished');
+    const continuing = room.series?.status === 'active' && room.series.id === game.seriesId;
     const rivalBusy = room.players.find(p => p.id === rival)?.busy;
     return <section className="match-result" data-outcome={outcome} aria-label="Game result">
         <p className="eyebrow">{outcome === 'win' ? 'BRAGGING RIGHTS SECURED' : outcome === 'draw' ? 'NOTHING BETWEEN YOU' : 'THE REMATCH IS CALLING'}</p>
@@ -36,8 +37,8 @@ export function MatchResult({ room, game, busy, online, onRematch, onReview, onD
             {game.winner ? <Trophy size={16}/> : <Handshake size={16}/>}
             {recordReady && record ? <span>Your record against this rival: <strong>{record.wins}W · {record.losses}L · {record.draws}D</strong></span> : <span>Updating your record…</span>}
         </div>
-        <Button className="main-action" disabled={busy || !online || rivalBusy} onClick={onRematch}><RotateCcw size={16}/>{busy ? 'Sending…' : `Rematch · ${game.minutes}+${game.increment}`}</Button>
-        <p className="panel-note">{rivalBusy ? 'Your rival is in another game.' : 'Same clock. Swap colors. Your rival accepts to start.'}</p>
+        <Button className="main-action" disabled={busy || !online || (rivalBusy && !continuing)} onClick={onRematch}><RotateCcw size={16}/>{busy ? 'Sending…' : continuing ? 'Challenge next round' : room.series?.id===game.seriesId && game.seriesId ? 'Rematch series' : `Rematch · ${game.minutes}+${game.increment}`}</Button>
+        <p className="panel-note">{continuing ? 'Same clock. Swap colors. Your rival accepts the next round.' : rivalBusy ? 'Your rival is in another game.' : 'Same clock. Swap colors. Your rival accepts to start.'}</p>
         <div className="result-actions"><Button variant="outline" onClick={onReview}>Game review</Button><Button variant="ghost" onClick={onDownload}><Download size={14}/>PGN</Button></div>
     </section>;
 }

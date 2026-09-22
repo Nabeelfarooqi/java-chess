@@ -33,7 +33,7 @@ Each command asks for six digits twice, invisibly. The code is saved as a hash a
 1. Open **Messages** and sign into the Apple account you want to send from. Ensure your existing iMessage conversations with Gud and Saif, plus the intended group chat, appear there. Send any initial messages yourself if those conversations do not exist yet.
 2. Install **BlueBubbles Server** using its [official installation guide](https://docs.bluebubbles.app/server/installation-guides/manual-setup) and [official releases](https://github.com/BlueBubblesApp/bluebubbles-server/releases). Follow its macOS permissions prompts, including access needed to read the Messages database and control Messages.
 3. Set and save a BlueBubbles server password. Keep the server running. Note its local HTTP port; the usual local URL is `http://127.0.0.1:1234`.
-4. This sender uses the basic AppleScript API for text messages to **existing** chats. Images and memes are paused. It does not require BlueBubbles Private API features. A public tunnel, port forwarding, and a BlueBubbles phone client are unnecessary for this integration because both the sender and BlueBubbles run on the same Mac. Follow your installed BlueBubbles version's setup screens for any additional server configuration.
+4. This sender uses the basic AppleScript API for text messages to **existing** chats. Images start paused. Optional local pools use the same AppleScript attachment API; see [Meme pools](#meme-pools). It does not require BlueBubbles Private API features. A public tunnel, port forwarding, and a BlueBubbles phone client are unnecessary for this integration because both the sender and BlueBubbles run on the same Mac. Follow your installed BlueBubbles version's setup screens for any additional server configuration.
 
 Choose your existing blue-bubble conversations. The wizard accepts both `iMessage;…` identifiers and the `any;…` identifiers returned by some Mac Messages databases. An `any` identifier means Messages selects the service for that existing conversation; it does not prove that the conversation uses iMessage. Explicit SMS/RCS identifiers remain excluded. See the [BlueBubbles FAQ](https://bluebubbles.app/faq/) for supported macOS versions and service limitations.
 
@@ -108,7 +108,7 @@ npm run imessage:start
 
 Keep this Terminal window and BlueBubbles running. The sender checks about every ten seconds. It requests protection from idle sleep while running, but shutting down, closing the laptop lid, losing internet, or quitting Messages/BlueBubbles can interrupt delivery. **Ctrl+C stops the sender.** This release does not install an automatic background/login service. After restarting the Mac, start BlueBubbles and run the command again.
 
-Once you are ready for real messages, challenge Gud or Saif from the site. Their configured DM receives the challenger name, time control, and link. Gud's destination is Usman's private conversation; Saif's is Saif's. Finish the game to send one text announcement to FRQ, selected above. Group announcements have no site link or image. Messages use Nabeel for Walan and Usman for Gud, without renaming the site's characters or changing their PINs or records.
+Once you are ready for real messages, challenge Gud or Saif from the site. Their configured DM receives the challenger name, time control, and link. Gud's destination is Usman's private conversation; Saif's is Saif's. Finish the game to send one text announcement to FRQ, selected above. Group announcements have no site link. They stay text-only unless you enable your local meme pools. Messages use Nabeel for Walan and Usman for Gud, without renaming the site's characters or changing their PINs or records.
 
 Example group announcement (illustrative scores):
 
@@ -121,7 +121,7 @@ Head-to-head: Usman 4 wins · Nabeel 3 wins · 1 draw
 
 Draws say the two players drew and update their draw total. The record counts only that pair's finished games, including this result, regardless of colors. Delayed announcements use the pair record as of that game's finish time. Images and meme pools are on hold; the owner can choose them later. When installing this text-only update, stop any older sender with Ctrl+C, pull/deploy, and restart it so the Mac also runs the new delivery code. Existing saved destinations remain valid.
 
-Win announcements rotate through four owner-approved phrases, alternating "gooned on" and "beat [loser's name]’s ass", followed by a short joke. Draws rotate through three separate phrases without declaring a winner. Each pair's saved decisive-game count or draw count selects the next phrase, so retries and delayed delivery keep the same wording. All pairings, including Saif's, use the same pools. These are text templates; no AI service or images are involved. Edit `resultOpening` in `lib/server/imessage.ts` to change the wording.
+Win announcements rotate through four owner-approved phrases, alternating "gooned on" and "beat [loser's name]’s ass", followed by a short joke. Draws rotate through three separate phrases without declaring a winner. Each pair's saved decisive-game count or draw count selects the next phrase, so retries and delayed delivery keep the same wording. All pairings, including Saif's, use the same pools. These are text templates; no AI service is involved. Images, if enabled, are chosen separately from your local pools. Edit `resultOpening` in `lib/server/imessage.ts` to change the wording.
 
 The game works even when the sender is stopped. Finished-game announcements queue for later. Challenges already accepted, cancelled, or older than 15 minutes are skipped when checked for delivery. Games finished before notifications were enabled are not backfilled. An active game that finishes after setup can produce a result.
 
@@ -133,7 +133,7 @@ From another Terminal window in `web/`:
 npm run imessage:status
 ```
 
-The latest 30 events show `pending`, `leased` (being processed), `sent`, `skipped`, or `needs_review`. A lease expires after five minutes if the sender stops abruptly. Confirmed texts are journaled locally and are not sent again merely because Cloudflare's acknowledgement failed. Older confirmed result texts remain complete; unfinished image parts are no longer sent.
+The latest 30 events show `pending`, `leased` (being processed), `sent`, `skipped`, or `needs_review`. A lease expires after five minutes if the sender stops abruptly. Confirmed texts are journaled locally and are not sent again merely because Cloudflare's acknowledgement failed. Text and selected image parts are journaled separately. A failed image never causes a confirmed text to be sent again. Older text-only journal entries stay text-only; no new image is added retroactively.
 
 Failed sends now print a sanitized reason in the sender Terminal and save it in the status table: HTTP rejection, connection/timeout, an AppleScript error code, or a Messages send code. Raw API error bodies can contain credentials, addresses, and message text, so they are never printed or uploaded. An older generic `needs_review` entry cannot recover its original error; stop the sender, pull the Mac scripts, and review it before a manual retry. This update requires no Cloudflare deployment or repeat setup.
 
@@ -164,3 +164,38 @@ The `.imessage` folder is Git-ignored, restricted to your Mac user, and must not
 `npm test`, `npm run typecheck`, and `npm run build` cover the application. The notification tests use disposable local databases and a mock BlueBubbles transport: they send **no actual iMessages**. Real delivery and macOS permission prompts still require the first check on your Mac.
 
 The implementation follows the [official BlueBubbles API guide](https://docs.bluebubbles.app/server/developer-guides/rest-api-and-webhooks) and the server's [message router](https://github.com/BlueBubblesApp/bluebubbles-server/blob/f2e2286241a7c3b6617a82b37d4afaab4df3a6b9/packages/server/src/server/api/http/api/v1/routers/messageRouter.ts). It uses `/api/v1/chat/query`, `/api/v1/message/text`, and `/api/v1/message/attachment` with `method=apple-script`.
+
+## Meme pools
+
+First stop the old sender with Ctrl+C, pull the update, deploy the Worker, and restart `npm run imessage:start` so both ends have the new event timestamp and delivery code. In another Terminal window, from `web`:
+
+```bash
+npm run imessage:memes
+```
+
+This creates and opens `.imessage/memes` on the Mac. Put **your chosen images** in its `win`, `loss`, and `draw` folders. Accepts PNG, JPEG, and WebP, at most 8 MB / 20 megapixels per source and 100 files per pool. Animated WebP uses its first frame; GIF is not supported. These ignored folders and generated previews are local, not uploaded to GitHub or Cloudflare.
+
+```bash
+npm run imessage:memes -- preview
+npm run imessage:memes -- enable
+```
+
+Preview opens a local HTML contact sheet and sends nothing. Enable asks for the perspective **player ID**, default `one` (Walan/Nabeel), displays the existing configured results destination, opens the preview, and asks for `ENABLE`. Do not enter a PIN as the player ID. `two` is Saif; added players use their configured IDs.
+
+| Outcome | Pool |
+| --- | --- |
+| Your chosen player wins | `win` |
+| Your chosen player loses | `loss` |
+| Other players finish a decisive game | `win`, celebrating that winner |
+| Anyone draws | `draw` |
+
+The text always names the actual winner/loser and correct pair record. One image follows the text, to the already selected results group only. No meme goes to challenge DMs. An empty applicable pool means text only. Selection is deterministic per event from sorted filenames, then frozen in its delivery journal. Repeats across different games are possible. Rename/add/remove files to change future selections; keep `prepared` and `journal` for recovery.
+
+```bash
+npm run imessage:memes -- list
+npm run imessage:memes -- pause
+```
+
+The running updated sender reads these settings for each job; no restart is needed just to enable/pause. Enabling applies only to results created afterward. Pausing keeps text announcements working. If an image is already in flight it cannot be recalled. Prepared PNGs are capped at 1200×1200 and metadata is stripped; the original image files are untouched. Invalid images pause that event before sending so you can fix the pool rather than send an unintended substitute.
+
+If an image outcome is uncertain, the job becomes `needs_review` and is not blindly retried. Check the group in Messages, stop the sender, and use the existing `imessage:retry -- JOB_ID` flow only when appropriate. Confirmed text/image parts remain complete. If only the image failed, the retry uses the same prepared image and does not repeat the text. Existing pre-feature journal entries are never retrofitted with memes. Actual attachment delivery still depends on BlueBubbles, Messages permissions, and the Mac being awake; automated tests use mocks and send no real messages.

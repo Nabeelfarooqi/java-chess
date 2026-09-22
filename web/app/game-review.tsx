@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { Chess } from 'chess.js';
 import { ChevronLeft, ChevronRight, RotateCcw, Search } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -13,6 +14,12 @@ const noop = () => {};
 export default function GameReview({ game, players, me, onClose }: { game: Game; players: Player[]; me: string; onClose: () => void }) {
     const moves = useMemo(() => { const board = new Chess(); return game.moves.map(san => board.move(san)); }, [game.id, game.moves]);
     const [rows, setRows] = useState<ReviewedMove[]>(cached.get(game.id) || []), [index, setIndex] = useState(0), [running, setRunning] = useState(false), [error, setError] = useState('');
+    const [saving, setSaving] = useState(false);
+    async function saveMistakes() {
+        const items=rows.flatMap((row,ply)=>(row.move.color==='w'?game.white:game.black)===me && ['Mistake','Blunder'].includes(row.quality) ? [{ply,solution:row.before.best,loss:Math.min(20000,Math.round(row.loss)),depth:row.before.depth}] : []).slice(0,40);
+        if(!items.length){toast('No reviewed mistakes to save for your side.');return;}
+        setSaving(true);try{const r=await fetch('/api/room',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'practiceSave',gameId:game.id,items})});const d=await r.json() as {error?:string;saved:number};if(!r.ok)throw Error(d.error||'Could not save practice.');toast.success(`${d.saved} positions saved. Open Club → Practice my mistakes.`);}catch(e){toast.error((e as Error).message);}finally{setSaving(false);}
+    }
     const engine = useRef<ReviewEngine | null>(null), generation = useRef(0);
     const name = (id: string) => players.find(p => p.id === id)?.name || 'Player';
     const selected = rows[index], displayed = moves[index];
@@ -57,7 +64,7 @@ export default function GameReview({ game, players, me, onClose }: { game: Game;
         </section><section className="review-details"><div className="review-totals">{[game.white, game.black].map(id => { const color = game.white === id ? 'w' : 'b'; const played = rows.filter(r => r.move.color === color); return <div key={id}><strong>{name(id)}</strong><span>{played.filter(r => r.quality === 'Brilliant').length} brilliant</span><span>{played.filter(r => r.quality === 'Mistake').length} mistakes</span><span>{played.filter(r => r.quality === 'Blunder').length} blunders</span></div>; })}</div>
             <div className="review-moves" aria-label="Reviewed moves">{moves.map((move, i) => <button key={i} className={`review-move ${i === index ? 'current' : ''}`} onClick={() => setIndex(i)} aria-current={i === index ? 'step' : undefined}><span>{Math.floor(i / 2) + 1}{i % 2 ? '…' : '.'} {move.san}</span>{rows[i] ? <span className={`quality quality-${rows[i].quality.toLowerCase()}`}>{rows[i].quality}</span> : <small>Waiting</small>}</button>)}</div>
         </section></div>}
-        <div className="review-actions">{running ? <Button variant="outline" onClick={stop}>Stop analysis</Button> : <><Button variant="outline" onClick={() => void analyze(250)} disabled={!moves.length}><RotateCcw size={15}/>Quick review</Button><Button onClick={() => void analyze(1000)} disabled={!moves.length}><Search size={15}/>Deeper review</Button></>}</div>
+        <div className="review-actions"><Button variant="outline" disabled={saving || running || !rows.length} onClick={()=>void saveMistakes()}>{saving?'Saving…':'Save my mistakes'}</Button>{running ? <Button variant="outline" onClick={stop}>Stop analysis</Button> : <><Button variant="outline" onClick={() => void analyze(250)} disabled={!moves.length}><RotateCcw size={15}/>Quick review</Button><Button onClick={() => void analyze(1000)} disabled={!moves.length}><Search size={15}/>Deeper review</Button></>}</div>
         <details className="review-method"><summary>How move labels work</summary><p>Best matches the engine’s first choice. Other moves lose roughly: under 0.5 pawns (good/excellent), 0.5–0.99 (inaccuracy), 1–1.99 (mistake), or 2+ (blunder). A forced move is the only legal move. Brilliant marks a sound, engine-best offer of a more valuable piece at depth 12 or higher. These are Rival Room’s estimates, not Chess.com’s ratings; deeper analysis can change them.</p><p>Analysis runs on your device after the game. <a href="/engine/Copying.txt" target="_blank" rel="noreferrer">Engine license</a> · <a href="/engine/SOURCE.txt" target="_blank" rel="noreferrer">Engine source</a></p></details>
     </DialogContent></Dialog>;
 }

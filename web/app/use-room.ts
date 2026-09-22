@@ -7,9 +7,11 @@ import { roomPollDelay } from '@/lib/connection';
 export function useRoom() {
     const [room, setRoom] = useState<Room | null>(null), [busy, setBusy] = useState(false), [ready, setReady] = useState(false), [error, setError] = useState(''), [online, setOnline] = useState(true), [live, setLive] = useState(false);
     const [latency, setLatency] = useState<number | null>(null), [moveLatency, setMoveLatency] = useState<number | null>(null);
+    const [deliverySamples, setDeliverySamples] = useState<number[]>([]);
+    const pendingReceipts = useRef(new Map<string,number>());
     const latest = useRef<Room | null>(null), offset = useRef(0), epoch = useRef(0), acting = useRef(false), socket = useRef<WebSocket | null>(null), lastFull = useRef(0);
     const polling = useRef<Promise<void> | null>(null), refreshAgain = useRef(false);
-    const clear = useCallback(() => { epoch.current++; latest.current = null; setRoom(null); setLatency(null); setMoveLatency(null); socket.current?.close(); }, []);
+    const clear = useCallback(() => { epoch.current++; latest.current = null; setRoom(null); setLatency(null); setMoveLatency(null); setDeliverySamples([]); pendingReceipts.current.clear(); socket.current?.close(); }, []);
     const apply = useCallback((data: RoomUpdate, roundTrip?: number) => {
         const merged = mergeRoom(latest.current, data);
         if (!merged || merged === latest.current) return;
@@ -74,6 +76,12 @@ export function useRoom() {
                 try {
                     const message = JSON.parse(event.data);
                     if (message.type === 'locked') { clear(); return; }
+                    if (message.type === 'receipt') {
+                        const start = pendingReceipts.current.get(message.moveId);
+                        pendingReceipts.current.delete(message.moveId);
+                        if (start!==undefined && performance.now()-start<30000) setDeliverySamples(samples=>[...samples,Math.round(performance.now()-start)].slice(-20));
+                        return;
+                    }
                     if (message.type !== 'game' || !message.game || ![message.game.white, message.game.black].includes(player)) return;
                     const previous = current.game;
                     apply({ me: player, game: message.game, serverNow: message.serverNow });
@@ -99,7 +107,21 @@ export function useRoom() {
         window.addEventListener('online', visible); document.addEventListener('visibilitychange', visible);
         return () => { stop = true; clearTimeout(timer); window.removeEventListener('online', visible); document.removeEventListener('visibilitychange', visible); };
     }, [me, refresh]);
+    useEffect(() => {
+        if (!me) return;
+        const beat = () => { if (!document.hidden) void fetch('/api/room',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'presence'}),signal:AbortSignal.timeout(8000)}).catch(()=>{}); };
+        beat(); const timer=setInterval(beat,25000); document.addEventListener('visibilitychange',beat);
+        return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',beat);};
+    },[me]);
     const game = room?.game;
+    useEffect(() => {
+        if (!game?.delivery || game.delivery.player===me || document.hidden) return;
+        let second=0;
+        const first=requestAnimationFrame(()=>{second=requestAnimationFrame(()=>{
+            if (!document.hidden && socket.current?.readyState===WebSocket.OPEN) socket.current.send(JSON.stringify({type:'seen',gameId:game.id,version:game.version,moveId:game.delivery!.id}));
+        });});
+        return()=>{cancelAnimationFrame(first);cancelAnimationFrame(second);};
+    },[game?.id,game?.version,me]);
     useEffect(() => {
         if (game?.status !== 'active') return;
         const remaining = clockMs(game, game.fen.split(' ')[1] === 'w' ? 'w' : 'b', Date.now() + offset.current);
@@ -113,7 +135,9 @@ export function useRoom() {
         const started = epoch.current;
         try {
             const g = latest.current?.game;
-            const result = await request({ action, compact: true, ...(g ? { gameId: g.id, version: g.version } : {}), ...details });
+            const moveId=action==='move'?crypto.randomUUID():undefined;
+            if (moveId) { for (const [id,time] of pendingReceipts.current) if (performance.now()-time>30000) pendingReceipts.current.delete(id); pendingReceipts.current.set(moveId,performance.now()); if(pendingReceipts.current.size>8)pendingReceipts.current.delete(pendingReceipts.current.keys().next().value!); }
+            const result = await request({ action, compact: true, ...(g ? { gameId: g.id, version: g.version } : {}), ...details, ...(moveId?{moveId}:{}) });
             if (started !== epoch.current) throw new Error('The session changed.');
             if (action === 'logout') { clear(); return result.data as Room; }
             apply(result.data, result.elapsed);
@@ -129,5 +153,5 @@ export function useRoom() {
             throw e;
         } finally { acting.current = false; setBusy(false); }
     }, [apply, clear, refresh, request]);
-    return { room, busy, ready, error, online, live, latency, moveLatency, offset: offset.current, act };
+    return { room, busy, ready, error, online, live, latency, moveLatency, deliverySamples, offset: offset.current, act };
 }

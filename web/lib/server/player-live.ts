@@ -1,7 +1,7 @@
 import type { Game } from '../game';
 import { digest, sessionToken } from './auth';
 import type { LiveEnv } from './live';
-type Connection = { player: string; tokenHash: string; expires: number };
+type Connection = { player: string; tokenHash: string; expires: number; seen?: {gameId:string;version:number;moveId:string;actor:string;expires:number}[] };
 // A hibernating notification hub. D1 remains the sole authority for all moves and results.
 export class PlayerLive {
     constructor(private ctx: DurableObjectState, private env: LiveEnv) {
@@ -10,6 +10,16 @@ export class PlayerLive {
     async fetch(req: Request): Promise<Response> {
         if (!this.env.DB) return new Response('Unavailable', { status: 503 });
         // Only the Worker binding can reach this internal endpoint; it is not a public route.
+        if (new URL(req.url).pathname === '/receipt' && req.method === 'POST') {
+            const receipt = await req.json() as {actor:string;gameId:string;moveId:string;version:number};
+            for (const ws of this.ctx.getWebSockets()) {
+                const c = ws.deserializeAttachment() as Connection;
+                if (c.player!==receipt.actor || c.expires<=Date.now()) continue;
+                const valid = await this.env.DB.prepare('SELECT token_hash FROM sessions WHERE token_hash=? AND expires>?').bind(c.tokenHash,Date.now()).first();
+                if (valid) { try { ws.send(JSON.stringify({type:'receipt',...receipt})); } catch {} }
+            }
+            return new Response(null,{status:204});
+        }
         if (new URL(req.url).pathname === '/publish' && req.method === 'POST') {
             const game = await req.json() as Game;
             const sockets = this.ctx.getWebSockets();
@@ -23,7 +33,13 @@ export class PlayerLive {
                 const c = connections[i];
                 try {
                     if (!allowed.has(c.tokenHash) || c.expires <= Date.now()) { ws.send(JSON.stringify({ type: 'locked' })); ws.close(4001, 'Session expired'); }
-                    else if (game.white === c.player || game.black === c.player) ws.send(message);
+                    else if (game.white === c.player || game.black === c.player) {
+                        if (game.delivery && game.delivery.player!==c.player) {
+                            c.seen = [...(c.seen||[]).filter(r=>r.expires>Date.now() && r.moveId!==game.delivery!.id),{gameId:game.id,version:game.version,moveId:game.delivery.id,actor:game.delivery.player,expires:Date.now()+30000}].slice(-8);
+                            ws.serializeAttachment(c);
+                        }
+                        ws.send(message);
+                    }
                 } catch { /* a closed tab is harmless */ }
             });
             return new Response(null, { status: 204 });
@@ -40,7 +56,19 @@ export class PlayerLive {
         pair[1].serializeAttachment({ player: session.player_id, tokenHash, expires: session.expires } satisfies Connection);
         return new Response(null, { status: 101, webSocket: pair[0] });
     }
-    webSocketMessage(ws: WebSocket) { ws.close(1008, 'Use the game API for moves'); }
+    async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+        if (typeof message!=='string' || message.length>512) { ws.close(1008,'Use the game API for moves'); return; }
+        let body; try { body=JSON.parse(message); } catch { ws.close(1008,'Invalid message'); return; }
+        if (body?.type!=='seen') { ws.close(1008,'Use the game API for moves'); return; }
+        const c=ws.deserializeAttachment() as Connection;
+        const receipt=c.seen?.find(r=>r.gameId===body.gameId && r.version===body.version && r.moveId===body.moveId && r.expires>Date.now());
+        if (!receipt || !this.env.DB || !this.env.LIVE_PLAYERS) return;
+        // Consume synchronously before awaiting D1 so concurrent receipts cannot replay it
+        // or overwrite attachment updates from a newer published move.
+        c.seen=c.seen?.filter(r=>r!==receipt); ws.serializeAttachment(c);
+        if (c.expires<=Date.now() || !await this.env.DB.prepare('SELECT token_hash FROM sessions WHERE token_hash=? AND expires>?').bind(c.tokenHash,Date.now()).first()) { ws.close(4001,'Session expired'); return; }
+        await this.env.LIVE_PLAYERS.get(this.env.LIVE_PLAYERS.idFromName(receipt.actor)).fetch('https://live.internal/receipt',{method:'POST',body:JSON.stringify(receipt)});
+    }
     webSocketClose(ws: WebSocket) { try { ws.close(1000); } catch {} }
     webSocketError(ws: WebSocket) { ws.close(1011, 'Reconnect'); }
 }

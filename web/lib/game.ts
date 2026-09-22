@@ -1,11 +1,14 @@
 import { Chess, type Square } from 'chess.js';
 import type { CharacterKey } from './characters';
+import type { Series } from './series';
 export type PlayerId = string;
 export type Player = {
     id: PlayerId;
     name: string;
     busy: boolean;
     character?: CharacterKey | null;
+    presence?: 'online' | 'away' | 'offline';
+    activity?: 'active' | 'pending' | 'series' | null;
 };
 export type Game = {
     id: string;
@@ -26,6 +29,9 @@ export type Game = {
     winner: PlayerId | null;
     reason: string;
     drawOffer: PlayerId | null;
+    seriesId?: string;
+    seriesRound?: number;
+    delivery?: { id: string; player: string };
 };
 export type Score = { wins: number; losses: number; draws: number };
 export type Room = {
@@ -36,6 +42,7 @@ export type Room = {
     stats: Record<PlayerId, Score>;
     headToHead: Record<PlayerId, Score>;
     serverNow: number;
+    series?: Series | null;
 };
 export function opponent(player: PlayerId, game: Pick<Game, 'white' | 'black'>): PlayerId {
     assert(player === game.white || player === game.black, 'You are not a player in this game.', 403);

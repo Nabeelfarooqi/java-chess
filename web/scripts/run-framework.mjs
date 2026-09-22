@@ -6,6 +6,8 @@ const [command, ...args] = process.argv.slice(2);
 if (!["dev", "build"].includes(command)) throw new Error("Expected dev or build.");
 const { prepareEngine } = await import("./prepare-engine.mjs");
 await prepareEngine();
+const { prepareAppIcons } = await import('./prepare-app-icons.mjs');
+await prepareAppIcons();
 const managedLinux = readExecutionProfile() === "managed-linux";
 
 if (managedLinux && command === "build") {

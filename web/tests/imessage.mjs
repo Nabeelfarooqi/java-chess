@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, readFileSync, statSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
+import {MemePool,outcomePool} from '../scripts/meme-pool.mjs';
 import { BlueBubbles, localBlueBubblesUrl } from '../scripts/bluebubbles-client.mjs';
 import { chatKind, chatCounts, chatDiagnostics, chatLabel, filterChats } from '../scripts/imessage-chat-list.mjs';
 import { groupActivityReport } from '../scripts/imessage-group-activity.mjs';
@@ -223,6 +224,38 @@ try {
   const players=[{id:'one',name:'Walan',character:'walan'},{id:'two',name:'Saif',character:null},{id:'uuid',name:'Renamed',character:'gud'}];
   assert.equal(findPlayer(players,'Usman').id,'uuid');assert.equal(findPlayer(players,'Saif').id,'two');
   const file=join(directory,'config.json');privateJson(file,{secret:'test-only'});assert.equal(statSync(file).mode&0o777,0o600);assert.equal(JSON.parse(readFileSync(file,'utf8')).secret,'test-only');
+ });
+ await check('Meme pools are opt-in, outcome-specific, future-only, metadata-stripped and locally previewable',async()=>{
+  const pool=new MemePool(join(directory,'memes'));await pool.setup();assert.equal((await pool.settings()).enabled,false);
+  assert.equal(outcomePool(result,'one'),'loss');assert.equal(outcomePool({...result,winnerId:'one'},'one'),'win');assert.equal(outcomePool({...result,winnerId:null},'one'),'draw');assert.equal(outcomePool(result,'unrelated'),'win');
+  const image=await sharp({create:{width:20,height:10,channels:3,background:'red'}}).jpeg().toBuffer();
+  for(const name of ['win','loss','draw'])writeFileSync(join(pool.directory,name,'<chosen>.jpg'),image);
+  assert.equal(await pool.choose({...job,createdAt:Date.now()}),null);await pool.configure(true,'one');
+  const enabled=(await pool.settings()).enabledAt;
+  assert.equal(await pool.choose({...job,createdAt:enabled-1}),null);assert.equal(await pool.choose({...job,kind:'challenge',createdAt:enabled+1}),null);
+  const plan=await pool.choose({...job,createdAt:enabled+1});assert.equal(plan.pool,'loss');assert.deepEqual(await pool.choose({...job,createdAt:enabled+1}),plan);
+  const metadata=await sharp(await pool.read(plan)).metadata();assert.equal(metadata.format,'png');assert.equal(metadata.exif,undefined);
+  const preview=await pool.preview();assert.equal(preview.count,3);assert.match(readFileSync(preview.path,'utf8'),/&lt;chosen&gt;/);
+  await assert.rejects(pool.read({hash:'../../config',pool:'win'}));
+ });
+ await check('Result image retries retain the chosen image, never repeat confirmed text, and wait for manual review',async()=>{
+  const pool=new MemePool(join(directory,'memes')),journal=new Journal(directory,config.site),acks=[];
+  const event={...job,id:'meme-retry',createdAt:Date.now()+1};let texts=0,images=0;
+  const options={memes:pool,journal,post:async b=>acks.push(b),bb:{text:async()=>texts++,image:async()=>{images++;throw Error('private-local-path');}}};
+  assert.equal(await deliver(event,config,options),'needs_review');assert.equal(texts,1);assert.equal(images,1);
+  const selected=journal.get(event.id).meme;assert.ok(selected.hash);assert.ok(!JSON.stringify(acks).includes('private-local-path'));
+  assert.equal(await deliver({...event,attempts:2},config,options),'needs_review');assert.equal(images,1);
+  const state=journal.get(event.id);delete state.parts.image;journal.put(event.id,state);
+  assert.equal(await deliver(event,config,{...options,bb:{text:async()=>texts++,image:async()=>images++}}),'sent');
+  assert.equal(texts,1);assert.equal(images,2);assert.deepEqual(journal.get(event.id).meme,selected);
+  await deliver({...event,attempts:2},config,{...options,bb:{text:async()=>texts++,image:async()=>images++}});assert.equal(texts,1);assert.equal(images,2);
+ });
+ await check('Pausing meme pools keeps text delivery working and never retrofits images to old journals',async()=>{
+  const pool=new MemePool(join(directory,'memes')),journal=new Journal(directory,config.site);await pool.configure(false);
+  let texts=0;const options={memes:pool,journal,post:async()=>{},bb:{text:async()=>texts++,image:async()=>{throw Error('must not send')}}};
+  await deliver({...job,id:'paused-meme',createdAt:Date.now()+1},config,options);assert.equal(texts,1);
+  await pool.configure(true);const old={...job,id:'old-text-after-enable',createdAt:Date.now()+1};journal.put(old.id,{chatGuid:config.groupChatGuid,parts:{text:{status:'done'}}});
+  await deliver(old,config,options);assert.equal(texts,1);
  });
  console.log(`\n${passed} BlueBubbles bridge checks passed (mock transport; no real messages sent).`);
 } finally {rmSync(directory,{recursive:true,force:true});}
