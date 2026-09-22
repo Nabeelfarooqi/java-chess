@@ -253,7 +253,19 @@ await check('Gud can replace his long code without changing his identity or char
  const logged=await POST(request({action:'login',pin:'583920'}));assert.equal(logged.status,200);const room=await logged.json();
  assert.equal(room.me,usman.id);assert.equal(room.players.find(p=>p.id===usman.id).character,'gud');assert.equal(room.stats[usman.id].wins,1);
 });
-const {handleBridge}=require(new URL('lib/server/imessage.cjs',build).pathname);
+const {handleBridge,resultOpening}=require(new URL('lib/server/imessage.cjs',build).pathname);
+await check('Group phrases alternate approved win wording, preserve winner order, and use a separate draw pool',()=>{
+ const wins=Array.from({length:8},(_,i)=>resultOpening('Usman','Nabeel',false,i+1));
+ assert.equal(new Set(wins.slice(0,4)).size,4);
+ for(let i=0;i<wins.length;i++){
+  assert.ok(wins[i].startsWith(i%2===0?'Usman gooned on Nabeel':'Usman beat Nabeel’s ass'));
+  assert.equal(wins[i],resultOpening('Usman','Nabeel',false,i+1));
+ }
+ assert.equal(wins[0],wins[4]);
+ const draws=Array.from({length:3},(_,i)=>resultOpening('Saif','Nabeel',true,i+1));
+ assert.equal(new Set(draws).size,3);
+ for(const line of draws){assert.match(line,/^Saif and Nabeel drew\./);assert.doesNotMatch(line,/gooned|beat .*ass/);}
+});
 const bridgeToken='c'.repeat(64);env.IMESSAGE_BRIDGE_HASH=await digest(bridgeToken);
 const bridge=(body,token=bridgeToken)=>handleBridge(new Request('https://rival.test/api/imessage',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify(body)}),env);
 await check('Notification queue is off by default and cannot be read with a PIN or forged bridge token',async()=>{
@@ -282,7 +294,7 @@ await check('A finished game queues one result with both identities, characters,
  const job=(await (await bridge({action:'claim'})).json()).job;
  assert.equal(job.kind,'result');assert.equal(job.result.winnerId,'two');assert.equal(job.result.white.character,'walan');assert.equal(job.result.black.character,null);
  assert.ok(job.result.score.blackWins>=1);assert.equal(job.result.reason,'Resignation');
- assert.match(job.text,/^Saif beat Nabeel!\nHead-to-head:/);assert.doesNotMatch(job.text,/https?:\/\/|Walan|Gud/);assert.equal(job.recipientId,null);
+ assert.match(job.text,/^Saif (?:gooned on Nabeel|beat Nabeel’s ass)/);assert.doesNotMatch(job.text,/https?:\/\/|Walan|Gud/);assert.equal(job.recipientId,null);
  const record=(await reopened.room('one')).headToHead.two;
  assert.deepEqual(job.result.score,{whiteWins:record.wins,blackWins:record.losses,draws:record.draws});
  assert.match(job.text,new RegExp('Saif '+record.losses+' wins? · Nabeel '+record.wins+' wins? · '+record.draws+' draws?'));
@@ -327,7 +339,7 @@ await check('Usman versus Saif announces the real winner without including their
  game=await reopened.act('two','accept',{gameId:game.id,version:game.version});
  game=await reopened.act('two','resign',{gameId:game.id,version:game.version});
  const job=(await (await bridge({action:'claim'})).json()).job;
- assert.equal(job.kind,'result');assert.match(job.text,/^Usman beat Saif!/);assert.doesNotMatch(job.text,/Nabeel|Walan|Gud|https?:\/\//);
+ assert.equal(job.kind,'result');assert.match(job.text,/^Usman (?:gooned on Saif|beat Saif’s ass)/);assert.doesNotMatch(job.text,/Nabeel|Walan|Gud|https?:\/\//);
  const record=(await reopened.room(usman.id)).headToHead.two;
  const wins=job.result.white.id===usman.id?job.result.score.whiteWins:job.result.score.blackWins;
  const losses=job.result.white.id===usman.id?job.result.score.blackWins:job.result.score.whiteWins;

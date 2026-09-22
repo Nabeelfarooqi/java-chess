@@ -67,12 +67,15 @@ Once you are ready for real messages, challenge Gud or Saif from the site. Their
 Example group announcement (illustrative scores):
 
 ```text
-Usman beat Nabeel!
+Usman gooned on Nabeel.
+Somebody’s about to blame the Wi-Fi 💀
 Head-to-head: Usman 4 wins · Nabeel 3 wins · 1 draw
 5+0 · Checkmate
 ```
 
 Draws say the two players drew and update their draw total. The record counts only that pair's finished games, including this result, regardless of colors. Delayed announcements use the pair record as of that game's finish time. Images and meme pools are on hold; the owner can choose them later. When installing this text-only update, stop any older sender with Ctrl+C, pull/deploy, and restart it so the Mac also runs the new delivery code. Existing saved destinations remain valid.
+
+Win announcements rotate through four owner-approved phrases, alternating "gooned on" and "beat [loser's name]’s ass", followed by a short joke. Draws rotate through three separate phrases without declaring a winner. Each pair's saved decisive-game count or draw count selects the next phrase, so retries and delayed delivery keep the same wording. All pairings, including Saif's, use the same pools. These are text templates; no AI service or images are involved. Edit `resultOpening` in `lib/server/imessage.ts` to change the wording.
 
 The game works even when the sender is stopped. Finished-game announcements queue for later. Challenges already accepted, cancelled, or older than 15 minutes are skipped when checked for delivery. Games finished before notifications were enabled are not backfilled. An active game that finishes after setup can produce a result.
 

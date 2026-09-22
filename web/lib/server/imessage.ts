@@ -8,6 +8,19 @@ function same(a: string, b: string) { if (a.length !== b.length) return false; l
 // Message names follow saved identities; the site's character names stay unchanged.
 function messageName(player: Player) { return player.id === 'one' ? 'Nabeel' : player.id === 'two' ? 'Saif' : player.character === 'gud' ? 'Usman' : player.name; }
 const count = (value: number, noun: string) => `${value} ${noun}${value === 1 ? '' : 's'}`;
+export function resultOpening(first: string, second: string, draw: boolean, ordinal: number) {
+    const phrases = draw ? [
+        `${first} and ${second} drew. 🤝\nNobody won. Both will say they were better.`,
+        `${first} and ${second} drew. 😭\nAll that thinking just to split the bill.`,
+        `${first} and ${second} drew. 💀\nBoth kings survived. Both egos remain undefeated.`,
+    ] : [
+        `${first} gooned on ${second} 💀\nThe scoreboard has receipts.`,
+        `${first} beat ${second}’s ass 😭\nThat rematch request is about to be personal.`,
+        `${first} gooned on ${second}.\nSomebody’s about to blame the Wi-Fi 💀`,
+        `${first} beat ${second}’s ass 💀\nThe group chat has been notified. There is no hiding.`,
+    ];
+    return phrases[Math.max(0, ordinal - 1) % phrases.length];
+}
 export async function notificationPayload(db: D1Database, job: JobRow, origin: string) {
     const game = await new Store(db).get(job.game_id);
     if (!game || (job.kind === 'challenge' && (game.status !== 'pending' || game.createdAt + 15 * 60000 <= Date.now()))) return null;
@@ -30,8 +43,11 @@ export async function notificationPayload(db: D1Database, job: JobRow, origin: s
       OR (json_extract(state,'$.white')=? AND json_extract(state,'$.black')=?))`)
       .bind(white.id, black.id, job.created_at, white.id, black.id, black.id, white.id).first<{ whiteWins: number; blackWins: number; draws: number }>();
     const winner = game.winner === white.id ? white : black, loser = winner.id === white.id ? black : white;
-    const headline = game.winner ? `${messageName(winner)} beat ${messageName(loser)}!` : `${messageName(white)} and ${messageName(black)} drew.`;
     const result = { white, black, winnerId: game.winner, time, reason: game.reason, score: score || { whiteWins: 0, blackWins: 0, draws: 0 } };
+    // Rotate separately through this pair's decisive games and draws. The score
+    // cutoff above makes a retry or delayed delivery keep the same phrase.
+    const ordinal = game.winner ? result.score.whiteWins + result.score.blackWins : result.score.draws;
+    const headline = resultOpening(messageName(game.winner ? winner : white), messageName(game.winner ? loser : black), !game.winner, ordinal);
     const first = game.winner ? winner : white, second = first.id === white.id ? black : white;
     const firstWins = first.id === white.id ? result.score.whiteWins : result.score.blackWins;
     const secondWins = first.id === white.id ? result.score.blackWins : result.score.whiteWins;

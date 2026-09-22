@@ -116,6 +116,8 @@ A new challenge sends the challenger’s name, time control, and site link priva
 
 The pair record includes the announced game and earlier finished games between those same two players, regardless of their colors. Other opponents' results are excluded. A queued announcement uses the record as of that game's finish time. Draws are listed separately from wins.
 
+Owner-approved group text rotates between four win phrases (alternating "gooned on" and "beat [loser's name]’s ass") and three draw phrases. Rotation is per pair, based on saved results, so retries retain their wording. Private challenge text remains a straightforward invitation. Templates live in `resultOpening` in `lib/server/imessage.ts`; no image or AI service is used.
+
 For this club, map **Gud to Usman's direct conversation**, **Saif to Saif's direct conversation**, and select **FRQ** as the results group. Check the listed participants before saving; the code never guesses chat destinations from a name. Walan remains Nabeel and can skip self-notifications. This integration sends through the Apple account signed into Messages on the Mac. It does not create a separate bot identity.
 
 The queue is disabled by default and does not announce historical games. Cancelled, accepted, or expired challenges are skipped before delivery. Results wait while the Mac is offline. Database triggers enqueue each event with the saved game transaction; a lease and a local delivery journal prevent routine reconnects from resending confirmed parts. If BlueBubbles might have sent a message but did not confirm it, the event pauses for manual review instead of being blindly retried. No external messaging system can promise exactly-once delivery across every interruption.
