@@ -25,7 +25,8 @@
     "imessage:groups": "node scripts/imessage-check-chats.mjs --groups",
     "imessage:start": "node scripts/imessage-bridge.mjs",
     "imessage:status": "node scripts/imessage-bridge.mjs status",
-    "imessage:retry": "node scripts/imessage-bridge.mjs retry"
+    "imessage:retry": "node scripts/imessage-bridge.mjs retry",
+    "cloudflare:spectator-pin": "node scripts/spectator-pin-cli.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

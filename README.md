@@ -105,6 +105,8 @@ Captured pieces appear beneath the player who took them, grouped by piece type w
 
 Walan, Gud, and Saif’s drawings fill their king pieces, with a small white/black SVG king badge to identify their chess color on phones and desktops.
 
+Spectators can use a separate shared six-digit PIN via **Watch as spectator** on the opening page. After deploying, run `npm run cloudflare:spectator-pin` in `web` to set it, or add `-- --disable` to revoke access. Viewers can choose live games and watch the clocks/captures, with no player controls or score changes. Player PINs and accounts stay separate. See the [spectator setup guide](web/README.md#spectator-pin).
+
 Choose an easier six-digit PIN for any player with `cloudflare:set-pin`, preserving their identity and scores. Optional [BlueBubbles iMessage notifications](web/IMESSAGE_SETUP.md) send challenge links privately to a rival and text results with updated head-to-head records to your selected group through your Mac. Messages use Nabeel for Walan and Usman for Gud. Map Gud to Usman's direct conversation, Saif to Saif's, and choose FRQ for group results during setup. Images and memes are paused. Notifications stay off until configured; the chess site runs independently of the Mac.
 
 If Messages shows those chats but setup cannot find them, run `npm run imessage:chats` from `web/` on your Mac. This read-only diagnostic distinguishes an empty BlueBubbles response from unsupported chat formats, without sending messages or changing your saved destinations. See [chat troubleshooting](web/IMESSAGE_SETUP.md#chats-exist-in-messages-but-setup-cannot-find-them).

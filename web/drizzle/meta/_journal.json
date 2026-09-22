@@ -43,6 +43,13 @@
       "when": 1790083845220,
       "tag": "0005_saif_character",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790085545108,
+      "tag": "0006_spectator_access",
+      "breakpoints": true
     }
   ]
 }

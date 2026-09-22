@@ -132,6 +132,26 @@ For this club, map **Gud to Usman's direct conversation**, **Saif to Saif's dire
 
 The queue is disabled by default and does not announce historical games. Cancelled, accepted, or expired challenges are skipped before delivery. Results wait while the Mac is offline. Database triggers enqueue each event with the saved game transaction; a lease and a local delivery journal prevent routine reconnects from resending confirmed parts. If BlueBubbles might have sent a message but did not confirm it, the event pauses for manual review instead of being blindly retried. No external messaging system can promise exactly-once delivery across every interruption.
 
+## Spectator PIN
+
+Spectators use a separate shared **six-digit** code. Open the normal site, click **Watch as spectator**, and enter that code. They can choose an active game, watch its board/clocks/captures, flip their view, and see the result when their selected game finishes. Live positions refresh about once per second while the tab is visible. A waiting screen appears when no games are active; private pending challenges are excluded.
+
+Deploy the update first, then create or change the spectator PIN from your Mac:
+
+```bash
+npm run cloudflare:spectator-pin
+```
+
+The command asks for six digits twice with input hidden. Share that code with viewers; keep personal player codes private. It cannot match a player's chosen PIN. Running the command with a different code immediately revokes existing spectator sessions; using the same code preserves them. To turn spectator access off:
+
+```bash
+npm run cloudflare:spectator-pin -- --disable
+```
+
+Spectator access is disabled until configured. Viewer sessions expire after 12 hours and have their own cookie and database table. Viewers never become players or appear in the rival picker, cannot submit moves/challenges/profile changes/draws/resignations, and cannot access player exports, player WebSockets, or the messaging bridge. Ordinary server clock expiry still settles games just as it does on a player's page. Rotation, logout, and disabling affect spectator sessions only; player PINs, sessions, identities, and records are preserved.
+
+`/watch` is the spectator page and `/api/spectate` is its read-only game endpoint. Migration `0006_spectator_access.sql` adds the settings/session tables and rejects player/spectator PIN collisions in the database. Spectator code changes store only a PBKDF2 hash, never the readable code. Both views use the existing game records; no duplicate scores or spectator accounts are created.
+
 ## Walan, Gud, and Saif characters
 
 | Existing PIN owner | Display name | Character |
@@ -203,7 +223,7 @@ npm run typecheck
 npm run build
 ```
 
-Tests use disposable local SQLite databases and the local Workers/Miniflare runtime bundled with Wrangler. They verify access control, CSRF protection, rate limiting, multiple PIN identities, participant authorization, independent pair scores, safe upgrades and character renaming of existing records, character ownership across color swaps, legal moves, special moves, checkmate, draws, clock expiry, concurrent writes, session revocation, persistence after reopening the database, castling on both sides for both colors, premove legality, stale response handling, review classification, and authenticated WebSocket delivery/revocation. They also check six-digit PIN replacement and duplicate rejection, notification migrations/leases, stale challenge suppression, result scores, uncertain sends, retry journals, documented BlueBubbles request formats, and PNG rendering. They do not contact your Cloudflare account or send real messages. Live Apple Messages permissions and delivery must be checked on the Mac after setup.
+Tests use disposable local SQLite databases and the local Workers/Miniflare runtime bundled with Wrangler. They verify access control, CSRF protection, rate limiting, multiple PIN identities, participant authorization, independent pair scores, safe upgrades and character renaming of existing records, character ownership across color swaps, legal moves, special moves, checkmate, draws, clock expiry, concurrent writes, session revocation, persistence after reopening the database, castling on both sides for both colors, premove legality, stale response handling, review classification, and authenticated WebSocket delivery/revocation. They also check six-digit PIN replacement and duplicate rejection, notification migrations/leases, stale challenge suppression, result scores, uncertain sends, retry journals, documented BlueBubbles request formats, and PNG rendering. Spectator checks cover disabled access, code collisions, origin/rate limits, live game selection, blocked player/notification actions, persistence, session expiry, rotation/disable/logout, and denial of player WebSocket access. They do not contact your Cloudflare account or send real messages. Live Apple Messages permissions and delivery must be checked on the Mac after setup.
 
 The app uses React, TypeScript, Vinext, chess.js, Cloudflare D1, WebSocket Durable Objects, and a separately loaded Stockfish browser worker. The original Java Swing game remains in the repository root and opens normally in IntelliJ.
 

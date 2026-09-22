@@ -5,8 +5,9 @@ import {DatabaseSync} from 'node:sqlite';
 import assert from 'node:assert/strict';
 import {newPlayer} from '../scripts/player-pin.mjs';
 import {pinUpdate} from '../scripts/set-pin.mjs';
+import {spectatorPinUpdate} from '../scripts/spectator-pin.mjs';
 const build=new URL('../.test-build/',import.meta.url);mkdirSync(build,{recursive:true});
-const files=['lib/material.ts','lib/server/imessage.ts','lib/characters.ts','lib/board.ts','lib/room-update.ts','lib/review.ts','lib/game.ts','lib/server/auth.ts','lib/server/store.ts','lib/server/live.ts','lib/server/api.ts','app/api/room/route.ts'];
+const files=['lib/server/spectator.ts','lib/spectator.ts','lib/material.ts','lib/server/imessage.ts','lib/characters.ts','lib/board.ts','lib/room-update.ts','lib/review.ts','lib/game.ts','lib/server/auth.ts','lib/server/store.ts','lib/server/live.ts','lib/server/api.ts','app/api/room/route.ts'];
 for(const file of files){let source=readFileSync(new URL('../'+file,import.meta.url),'utf8');
  if(file==='app/api/room/route.ts')source=source.replace("'cloudflare:workers'","'../../../env.cjs'").replaceAll("'@/lib/","'../../../lib/");
  source=source.replace(/from '(\.{1,2}\/[^']+)'/g,(_,path)=>`from '${path.endsWith('.cjs')?path:path+'.cjs'}'`);
@@ -397,4 +398,89 @@ await check('Usman versus Saif announces the real winner without including their
  await bridge({action:'ack',id:job.id,leaseToken:job.leaseToken,status:'sent'});
 });
 
+
+const {handleSpectator}=require(new URL('lib/server/spectator.cjs',build).pathname);
+const spectator=(body,cookie='',suffix='',origin='https://rival.test')=>handleSpectator(new Request('https://rival.test/api/spectate'+suffix,{method:body?'POST':'GET',headers:{Origin:origin,'Content-Type':'application/json',Cookie:cookie,'cf-connecting-ip':'spectator-test'},...(body?{body:JSON.stringify(body)}:{})}),env);
+const spectatorCode='092841',replacementCode='829415';let spectatorCookie,spectatorGame;
+const spectatorSalt=sql.prepare('SELECT salt FROM pin_settings WHERE id=1').get().salt;
+await check('Spectator access starts disabled and its migration preserves player accounts and records',async()=>{
+ assert.equal(sql.prepare('SELECT pin_hash FROM spectator_settings WHERE id=1').get().pin_hash,null);
+ assert.equal((await spectator()).status,401);assert.equal((await spectator({action:'login',pin:spectatorCode})).status,503);
+ const legacy=new DatabaseSync(':memory:');
+ for(const file of readdirSync(new URL('../drizzle/',import.meta.url)).filter(f=>f.endsWith('.sql')&&!f.startsWith('0006')).sort())legacy.exec(readFileSync(new URL('../drizzle/'+file,import.meta.url),'utf8'));
+ legacy.exec("UPDATE players SET name='Existing Walan',pin_hash='kept-pin' WHERE id='one'; INSERT INTO sessions VALUES ('kept-session','one',9999999999999)");
+ const retainedGame=transition(createGame('one','two',5,0),'two','accept',{});
+ legacy.prepare('INSERT INTO games(id,active_key,state,version,created_at,finished_at) VALUES (?,1,?,0,?,NULL)').run(retainedGame.id,JSON.stringify(retainedGame),retainedGame.createdAt);
+ const tables=legacy.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all().map(row=>row.name);
+ const before=Object.fromEntries(tables.map(table=>[table,legacy.prepare('SELECT * FROM '+table).all()]));
+ legacy.exec(readFileSync(new URL('../drizzle/0006_spectator_access.sql',import.meta.url),'utf8'));
+ for(const table of tables)assert.deepEqual(legacy.prepare('SELECT * FROM '+table).all(),before[table]);
+ legacy.close();
+});
+await check('Spectator PINs and player PINs cannot collide in either direction',()=>{
+ const playerHash=sql.prepare("SELECT pin_hash FROM players WHERE pin_hash IS NOT NULL LIMIT 1").get().pin_hash;
+ assert.throws(()=>sql.prepare('UPDATE spectator_settings SET pin_hash=? WHERE id=1').run(playerHash),/conflicts/);
+ assert.equal(sql.prepare(spectatorPinUpdate(spectatorCode,spectatorSalt)).get().id,1);
+ const hash=sql.prepare('SELECT pin_hash FROM spectator_settings WHERE id=1').get().pin_hash;
+ assert.equal(sql.prepare(pinUpdate('one',spectatorCode,spectatorSalt)).get(),undefined);
+ assert.throws(()=>sql.prepare("UPDATE players SET pin_hash=? WHERE id='one'").run(hash),/conflicts/);
+ assert.throws(()=>sql.prepare("INSERT INTO players(id,name,pin_hash) VALUES ('fake-watcher','Fake',?)").run(hash),/conflicts/);
+ assert.throws(()=>spectatorPinUpdate('not-six',spectatorSalt),/6 digits/);
+});
+await check('Spectator sign-in is origin checked, hashed, rate limited, and isolated from player sessions',async()=>{
+ assert.equal((await spectator({action:'login',pin:spectatorCode},'','','https://other.test')).status,403);
+ assert.equal((await spectator({action:'login',pin:'000000'})).status,401);
+ const before=sql.prepare('SELECT COUNT(*) AS n FROM players').get().n;
+ const response=await spectator({action:'login',pin:spectatorCode});assert.equal(response.status,200);
+ spectatorCookie=response.headers.get('set-cookie').split(';')[0];assert.match(response.headers.get('set-cookie'),/HttpOnly.*SameSite=Strict.*Secure/);
+ assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM players').get().n,before);
+ assert.equal(await sessionPlayer(env.DB,new Request('https://rival.test',{headers:{Cookie:spectatorCookie}})),null);
+ assert.equal((await get(spectatorCookie)).status,401);assert.equal((await get(spectatorCookie,'?export=all')).status,401);
+ assert.equal((await get(spectatorCookie.replace('rr_spectator=','rr_session='))).status,401);
+ assert.equal((await spectator(undefined,'rr_spectator='+'0'.repeat(64))).status,401);
+ assert.equal((await spectator(undefined,cookieTwo)).status,401);
+ sql.exec('DELETE FROM attempts');assert.equal((await POST(request({action:'login',pin:spectatorCode}))).status,401);
+ for(let i=0;i<8;i++)await spectator({action:'login',pin:'000000'});
+ assert.equal((await spectator({action:'login',pin:spectatorCode})).status,429);sql.exec('DELETE FROM attempts');
+});
+await check('Spectators can switch live games and follow moves and results without reading credentials or private challenges',async()=>{
+ spectatorGame=await reopened.create('one','two',5,0);
+ let snapshot=await (await spectator(undefined,spectatorCookie)).json();assert.ok(!snapshot.games.some(game=>game.id===spectatorGame.id));
+ assert.equal((await (await spectator(undefined,spectatorCookie,'?game='+spectatorGame.id)).json()).selectedGame,null);
+ spectatorGame=await reopened.act('two','accept',{gameId:spectatorGame.id,version:spectatorGame.version});
+ sql.exec("INSERT INTO players(id,name) VALUES ('spectator-rival','Other rival')");
+ let another=await reopened.create(usman.id,'spectator-rival',3,2);another=await reopened.act('spectator-rival','accept',{gameId:another.id,version:another.version});
+ snapshot=await (await spectator(undefined,spectatorCookie,'?game='+spectatorGame.id)).json();
+ assert.ok(snapshot.games.some(game=>game.id===spectatorGame.id));assert.ok(snapshot.games.some(game=>game.id===another.id));assert.equal(snapshot.selectedGame.id,spectatorGame.id);
+ assert.equal((await (await spectator(undefined,spectatorCookie,'?game='+another.id)).json()).selectedGame.id,another.id);
+ assert.doesNotMatch(JSON.stringify(snapshot),/pin_hash|token_hash|spectatorCode|salt|headToHead/);assert.equal(snapshot.recent,undefined);
+ spectatorGame=await reopened.act(spectatorGame.white,'move',{gameId:spectatorGame.id,version:spectatorGame.version,from:'e2',to:'e4'});
+ assert.equal((await (await spectator(undefined,spectatorCookie,'?game='+spectatorGame.id)).json()).selectedGame.moves[0],'e4');
+ await reopened.act(usman.id,'resign',{gameId:another.id,version:another.version});
+});
+await check('Spectator cookies cannot challenge, rename, move, resign, draw, or send notification commands',async()=>{
+ const before=(await reopened.get(spectatorGame.id));
+ const accounts=sql.prepare('SELECT * FROM players ORDER BY id').all();
+ for(const action of ['create','rename','move','accept','cancel','resign','offerDraw','acceptDraw','declineDraw']){
+  const body={action,gameId:before.id,version:before.version,from:'e7',to:'e5',rival:'two',minutes:5,increment:0,name:'Imposter'};
+  assert.equal((await spectator(body,spectatorCookie)).status,403,action);
+  assert.equal((await POST(request(body,spectatorCookie))).status,401,action);
+ }
+ assert.deepEqual(await reopened.get(before.id),before);assert.deepEqual(sql.prepare('SELECT * FROM players ORDER BY id').all(),accounts);
+ assert.equal((await handleBridge(new Request('https://rival.test/api/imessage',{method:'POST',headers:{'Content-Type':'application/json',Cookie:spectatorCookie},body:JSON.stringify({action:'claim'})}),env)).status,401);
+ spectatorGame=await reopened.act('one','resign',{gameId:before.id,version:before.version});
+ const snapshot=await (await spectator(undefined,spectatorCookie,'?game='+before.id)).json();assert.equal(snapshot.selectedGame.status,'finished');assert.ok(!snapshot.games.some(game=>game.id===before.id));
+});
+await check('Rotating or disabling spectator access revokes viewers only; logout and expiry also lock the view',async()=>{
+ const players=sql.prepare('SELECT * FROM players ORDER BY id').all(),sessions=sql.prepare('SELECT * FROM sessions ORDER BY token_hash').all(),games=sql.prepare('SELECT * FROM games ORDER BY id').all();
+ sql.prepare(spectatorPinUpdate(spectatorCode,spectatorSalt)).get();assert.equal((await spectator(undefined,spectatorCookie)).status,200);
+ sql.prepare(spectatorPinUpdate(replacementCode,spectatorSalt)).get();assert.equal((await spectator(undefined,spectatorCookie)).status,401);
+ assert.equal((await spectator({action:'login',pin:spectatorCode})).status,401);
+ const login=await spectator({action:'login',pin:replacementCode});spectatorCookie=login.headers.get('set-cookie').split(';')[0];
+ sql.close();env.DB=connect();assert.equal((await spectator(undefined,spectatorCookie)).status,200);
+ const logout=await spectator({action:'logout'},spectatorCookie);assert.equal(logout.status,200);assert.match(logout.headers.get('set-cookie'),/Max-Age=0/);assert.equal((await spectator(undefined,spectatorCookie)).status,401);
+ const expiring=await spectator({action:'login',pin:replacementCode});const expiryCookie=expiring.headers.get('set-cookie').split(';')[0];sql.exec('UPDATE spectator_sessions SET expires=0');assert.equal((await spectator(undefined,expiryCookie)).status,401);
+ const finalLogin=await spectator({action:'login',pin:replacementCode});const finalCookie=finalLogin.headers.get('set-cookie').split(';')[0];sql.exec('UPDATE spectator_settings SET pin_hash=NULL WHERE id=1');assert.equal((await spectator(undefined,finalCookie)).status,401);
+ assert.deepEqual(sql.prepare('SELECT * FROM players ORDER BY id').all(),players);assert.deepEqual(sql.prepare('SELECT * FROM sessions ORDER BY token_hash').all(),sessions);assert.deepEqual(sql.prepare('SELECT * FROM games ORDER BY id').all(),games);
+});
 sql.close();console.log(`\n${passed} integration checks passed.`);

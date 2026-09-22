@@ -23,6 +23,17 @@ try {
  const post=(body,cookie='')=>mf.dispatchFetch(origin+'/api/room',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',Cookie:cookie},body:JSON.stringify(body)});
  const login=async pin=>{const r=await post({action:'login',pin});assert.equal(r.status,200);return r.headers.get('set-cookie').split(';')[0]};
  const one=await login('19462850'),two=await login('60392714');
+ const settings=await db.prepare('SELECT salt FROM pin_settings WHERE id=1').first();
+ const spectatorHash=pbkdf2Sync('092841',settings.salt,100000,32,'sha256').toString('hex');
+ await db.prepare('UPDATE spectator_settings SET pin_hash=? WHERE id=1').bind(spectatorHash).run();
+ const spectatorLogin=await mf.dispatchFetch(origin+'/api/spectate',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({action:'login',pin:'092841'})});
+ assert.equal(spectatorLogin.status,200);const watcher=spectatorLogin.headers.get('set-cookie').split(';')[0];
+ assert.equal((await mf.dispatchFetch(origin+'/api/spectate',{headers:{Cookie:watcher}})).status,200);
+ for(const cookie of [watcher,watcher.replace('rr_spectator=','rr_session=')]){
+  assert.equal((await mf.dispatchFetch(origin+'/api/live',{headers:{Upgrade:'websocket',Origin:origin,Cookie:cookie,'x-player-id':'one'}})).status,401);
+  assert.equal((await post({action:'create',rival:'two',minutes:5,increment:0},cookie)).status,401);
+ }
+
  assert.equal((await mf.dispatchFetch(origin+'/api/live',{headers:{Upgrade:'websocket',Origin:origin}})).status,401);
  assert.equal((await mf.dispatchFetch(origin+'/api/live',{headers:{Upgrade:'websocket',Origin:'https://other.test',Cookie:one}})).status,403);
  async function connect(cookie){const ws=new NodeWebSocket(origin.replace('http:','ws:')+'/api/live',{headers:{Origin:origin,Cookie:cookie,'x-player-id':'forged'}});await new Promise((resolve,reject)=>{ws.once('open',resolve);ws.once('error',reject)});sockets.push(ws);return ws;}
@@ -34,6 +45,11 @@ try {
  pa=message(a);pb=message(b);
  const accepted=await post({action:'accept',gameId:g.id,version:g.version,compact:true},two);g=(await accepted.json()).game;
  assert.equal((await pa).game.status,'active');await pb;
+ const watched=await mf.dispatchFetch(origin+'/api/spectate?game='+g.id,{headers:{Cookie:watcher}});
+ assert.equal((await watched.json()).selectedGame.id,g.id);
+ await db.prepare('UPDATE spectator_settings SET pin_hash=NULL WHERE id=1').run();
+ assert.equal((await mf.dispatchFetch(origin+'/api/spectate',{headers:{Cookie:watcher}})).status,401);
+
  pa=message(a);pb=message(b);
  const moved=await post({action:'move',gameId:g.id,version:g.version,from:'e2',to:'e4',compact:true},one);g=(await moved.json()).game;
  assert.equal((await pb).game.moves[0],'e4');await pa;
@@ -43,5 +59,5 @@ try {
  await post({action:'resign',gameId:g.id,version:g.version,compact:true},two);
  assert.equal((await pb).game.status,'finished');assert.equal((await revoked).type,'locked');a.close();
  assert.equal((await mf.dispatchFetch(origin+'/api/room?live=1',{headers:{Cookie:one}})).status,401);
- console.log('PASS Real Workers runtime: authenticated WebSockets, origin isolation, challenge/move delivery, compact snapshots and session revocation');
+ console.log('PASS Real Workers runtime: authenticated WebSockets, origin isolation, challenge/move delivery, compact snapshots, spectator isolation and session revocation');
 } finally { for(const ws of sockets)try{ws.close()}catch{};await mf.dispose(); }

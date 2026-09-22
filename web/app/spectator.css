@@ -1,0 +1,29 @@
+.spectator-link { display: inline-flex; align-items: center; min-height: 44px; margin-top: 12px; color: var(--primary); text-decoration: underline; text-underline-offset: 4px; font-size: 14px; }
+.spectator-gate { max-width: 560px; margin: auto; padding: 48px 20px; }
+.spectator-back { display: block; margin-bottom: 44px; color: var(--muted-foreground); }
+.spectator-gate > svg { color: var(--primary); margin-bottom: 18px; }
+.spectator-gate h1 { font-size: 36px; font-family: Georgia, serif; margin-bottom: 12px; }
+.spectator-gate > p { color: var(--muted-foreground); line-height: 1.6; margin-bottom: 24px; }
+.spectator-gate .gate label { display: block; margin-bottom: 10px; }
+.spectator-gate input { font-size: 16px; }
+.spectator-heading { display: flex; align-items: center; gap: 10px; }
+.spectator-heading > svg { color: var(--primary); }
+.spectator-heading strong { font-size: 18px; }
+.spectator-heading p { font-size: 12px; color: var(--muted-foreground); margin-top: 3px; }
+.spectator-club { max-width: 760px; }
+.spectator-club .board-column { max-width: 620px; margin-inline: auto; }
+.spectator-picker { display: flex; flex-direction: column; gap: 8px; margin: 18px 0; }
+.spectator-picker label { font-size: 13px; color: var(--muted-foreground); }
+.spectator-picker select { width: 100%; min-height: 44px; padding: 10px; border: 1px solid var(--border); border-radius: 7px; color: var(--foreground); background: var(--card); font-size: 16px; }
+.spectator-picker select:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+.spectator-empty { padding: 60px 20px; text-align: center; color: var(--muted-foreground); }
+.spectator-empty svg { margin: 0 auto 18px; color: var(--primary); }
+.spectator-empty h2 { color: var(--foreground); font-size: 24px; margin-bottom: 12px; }
+.spectator-empty p { line-height: 1.6; }
+@media (max-width: 700px) {
+    .spectator-heading strong { font-size: 16px; }
+    .spectator-heading p { font-size: 11px; }
+    .spectator-picker { margin: 10px 0; gap: 4px; }
+    .spectator-club.game-active .board-column { width: min(100%, max(260px, calc(100svh - 310px))); }
+    .spectator-club .board-status { font-size: 13px; }
+}
