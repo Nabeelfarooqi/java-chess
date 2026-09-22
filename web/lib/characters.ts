@@ -1,14 +1,16 @@
 import type { Color } from 'chess.js';
 
-// Stable player IDs come from the verified PIN session, never from the board color or display name.
+export type CharacterKey = 'walan' | 'gud';
 const characters = {
-    one: { key: 'walan', name: 'Walan', image: '/characters/walan.jpeg' },
-    two: { key: 'gud', name: 'Gud', image: '/characters/gud.jpeg' },
+    walan: { key: 'walan', name: 'Walan', image: '/characters/walan.jpeg' },
+    gud: { key: 'gud', name: 'Gud', image: '/characters/gud.jpeg' },
 } as const;
 export type Character = typeof characters[keyof typeof characters];
-export function characterFor(player?: string): Character | null {
-    return player === 'one' ? characters.one : player === 'two' ? characters.two : null;
+// The server sends the character saved on the PIN's player record.
+// Display-name edits and chess-color changes never transfer ownership.
+export function getCharacter(key?: CharacterKey | null): Character | null {
+    return key === 'walan' ? characters.walan : key === 'gud' ? characters.gud : null;
 }
-export function characterForColor(color: Color, white?: string, black?: string) {
-    return characterFor(color === 'w' ? white : black);
+export function characterForColor(color: Color, white?: CharacterKey | null, black?: CharacterKey | null) {
+    return getCharacter(color === 'w' ? white : black);
 }

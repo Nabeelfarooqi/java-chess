@@ -1,9 +1,11 @@
 import { Chess, type Square } from 'chess.js';
+import type { CharacterKey } from './characters';
 export type PlayerId = string;
 export type Player = {
     id: PlayerId;
     name: string;
     busy: boolean;
+    character?: CharacterKey | null;
 };
 export type Game = {
     id: string;

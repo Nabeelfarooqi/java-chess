@@ -2,15 +2,15 @@
 import { memo, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { Chess, type Color, type Square } from 'chess.js';
 import { pieceName, premoveTargets, squareAt, type BoardMove } from '@/lib/board';
-import { characterForColor } from '@/lib/characters';
+import { characterForColor, type CharacterKey } from '@/lib/characters';
 import { BoardPiece } from './character-art';
 type Props = {
-    whitePlayer?: string; blackPlayer?: string;
+    whiteCharacter?: CharacterKey | null; blackCharacter?: CharacterKey | null;
     fen: string; orientation: Color; color: Color; active: boolean; canMove: boolean; online: boolean;
     lastMove: { from: Square; to: Square } | null; premove: BoardMove | null;
     onMove: (from: Square, to: Square) => void; onCancel: () => void;
 };
-export const ChessBoard = memo(function ChessBoard({ fen, orientation, color, active, canMove, online, lastMove, premove, onMove, onCancel, whitePlayer, blackPlayer }: Props) {
+export const ChessBoard = memo(function ChessBoard({ fen, orientation, color, active, canMove, online, lastMove, premove, onMove, onCancel, whiteCharacter, blackCharacter }: Props) {
     const board = useMemo(() => new Chess(fen), [fen]);
     const [selected, setSelected] = useState<Square | null>(null), [dragged, setDragged] = useState<Square | null>(null), [hover, setHover] = useState<Square | null>(null);
     const element = useRef<HTMLDivElement>(null), ghost = useRef<HTMLSpanElement>(null);
@@ -75,15 +75,15 @@ export const ChessBoard = memo(function ChessBoard({ fen, orientation, color, ac
                 const square = (orientation === 'w' ? 'abcdefgh'[i % 8] + (8 - Math.floor(i / 8)) : 'hgfedcba'[i % 8] + (1 + Math.floor(i / 8))) as Square;
                 const file = square.charCodeAt(0) - 97, rank = Number(square[1]), piece = board.get(square);
                 const checked = piece?.type === 'k' && piece.color === board.turn() && board.isCheck();
-                return <button key={square} data-camp={characterForColor(rank <= 4 ? 'w' : 'b', whitePlayer, blackPlayer)?.key} aria-label={`${square}${piece ? ' ' + (piece.color === 'w' ? 'white' : 'black') + ' ' + pieceName[piece.type] : ''}`} aria-pressed={selected === square} className={`square ${(file + rank) % 2 ? 'light' : 'dark'} ${selected === square ? 'selected' : ''} ${lastMove && [lastMove.from, lastMove.to].includes(square) ? 'last-move' : ''} ${checked ? 'in-check' : ''} ${premove && [premove.from, premove.to].includes(square) ? 'premove-square' : ''} ${hover === square ? 'drop-target' : ''} ${piece?.color === color && enabled ? 'movable' : ''}`}
+                return <button key={square} data-camp={characterForColor(rank <= 4 ? 'w' : 'b', whiteCharacter, blackCharacter)?.key} aria-label={`${square}${piece ? ' ' + (piece.color === 'w' ? 'white' : 'black') + ' ' + pieceName[piece.type] : ''}`} aria-pressed={selected === square} className={`square ${(file + rank) % 2 ? 'light' : 'dark'} ${selected === square ? 'selected' : ''} ${lastMove && [lastMove.from, lastMove.to].includes(square) ? 'last-move' : ''} ${checked ? 'in-check' : ''} ${premove && [premove.from, premove.to].includes(square) ? 'premove-square' : ''} ${hover === square ? 'drop-target' : ''} ${piece?.color === color && enabled ? 'movable' : ''}`}
                     onPointerDown={e => down(e, square)} onPointerMove={pointerMove} onPointerUp={e => up(e, square)} onPointerCancel={stopDrag} onLostPointerCapture={() => { if (drag.current) stopDrag(); }} onClick={e => { if (e.detail === 0) click(square); }} onDragStart={e => e.preventDefault()}>
                     {i % 8 === 0 && <span className="rank">{rank}</span>}
-                    {piece && <BoardPiece type={piece.type} color={piece.color} player={piece.color === 'w' ? whitePlayer : blackPlayer} hidden={dragged === square}/>}
+                    {piece && <BoardPiece type={piece.type} color={piece.color} character={piece.color === 'w' ? whiteCharacter : blackCharacter} hidden={dragged === square}/>}
                     {targets.includes(square) && <span className={`legal-dot ${piece ? 'capture' : ''}`}/>}
                     {i >= 56 && <span className="file">{square[0]}</span>}
                 </button>;
             })}
         </div>
-        <span ref={ghost} className="drag-ghost" aria-hidden="true">{dragged && board.get(dragged) && <BoardPiece type={board.get(dragged)!.type} color={board.get(dragged)!.color} player={board.get(dragged)!.color === 'w' ? whitePlayer : blackPlayer}/>}</span>
+        <span ref={ghost} className="drag-ghost" aria-hidden="true">{dragged && board.get(dragged) && <BoardPiece type={board.get(dragged)!.type} color={board.get(dragged)!.color} character={board.get(dragged)!.color === 'w' ? whiteCharacter : blackCharacter}/>}</span>
     </div>;
 });

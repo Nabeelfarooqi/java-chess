@@ -41,7 +41,7 @@ export class Store {
         const game = await this.current(me);
         // One D1 round trip for the slower roster/history view; live moves skip this entirely.
         const [roster, history, totals, pairs] = await this.db.batch([
-            this.db.prepare('SELECT players.id,players.name,game_seats.player_id IS NOT NULL AS busy FROM players LEFT JOIN game_seats ON players.id=game_seats.player_id ORDER BY players.name,players.id'),
+            this.db.prepare('SELECT players.id,players.name,players.character,game_seats.player_id IS NOT NULL AS busy FROM players LEFT JOIN game_seats ON players.id=game_seats.player_id ORDER BY players.name,players.id'),
             this.db.prepare(`SELECT state,version FROM games WHERE ${participant} AND ${finished} ORDER BY finished_at DESC,rowid DESC LIMIT 20`).bind(me, me),
             this.db.prepare(`WITH results AS (
                 SELECT json_extract(state,'$.white') AS white,json_extract(state,'$.black') AS black,json_extract(state,'$.winner') AS winner FROM games WHERE ${finished}

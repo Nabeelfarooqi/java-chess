@@ -23,7 +23,7 @@ const get=(cookie='',suffix='')=>GET(new Request('https://rival.test/api/room'+s
 let cookieOne,cookieTwo;
 await check('Anonymous game data and exports are blocked',async()=>{assert.equal((await get()).status,401);assert.equal((await get('','?export=all')).status,401);assert.equal((await POST(request({action:'create',minutes:5,increment:0}))).status,401)});
 await check('Cross-origin writes and malformed JSON are rejected',async()=>{assert.equal((await POST(request({action:'login',pin:testPins[0]},'','https://other.test'))).status,403);assert.equal((await POST(new Request('https://rival.test/api/room',{method:'POST',headers:{Origin:'https://rival.test','Content-Type':'application/json'},body:'['}))).status,400)});
-await check('Original PINs still resolve to the original player identities',async()=>{const a=await POST(request({action:'login',pin:testPins[0]}));assert.equal(a.status,200);cookieOne=a.headers.get('set-cookie').split(';')[0];assert.match(a.headers.get('set-cookie'),/HttpOnly.*SameSite=Strict.*Secure/);const walan=await a.json();assert.equal(walan.me,'one');assert.equal(walan.players.find(p=>p.id==='one').name,'Walan');const b=await POST(request({action:'login',pin:testPins[1]}));assert.equal(b.status,200);cookieTwo=b.headers.get('set-cookie').split(';')[0];const gud=await b.json();assert.equal(gud.me,'two');assert.equal(gud.players.find(p=>p.id==='two').name,'Gud');assert.notEqual(cookieOne,cookieTwo)});
+await check('Original PINs still resolve to the original player identities',async()=>{const a=await POST(request({action:'login',pin:testPins[0]}));assert.equal(a.status,200);cookieOne=a.headers.get('set-cookie').split(';')[0];assert.match(a.headers.get('set-cookie'),/HttpOnly.*SameSite=Strict.*Secure/);const walan=await a.json();assert.equal(walan.me,'one');assert.equal(walan.players.find(p=>p.id==='one').name,'Walan');const b=await POST(request({action:'login',pin:testPins[1]}));assert.equal(b.status,200);cookieTwo=b.headers.get('set-cookie').split(';')[0];const saif=await b.json();assert.equal(saif.me,'two');assert.equal(saif.players.find(p=>p.id==='two').name,'Saif');assert.equal(saif.players.find(p=>p.id==='two').character,null);assert.equal(saif.players.find(p=>p.id==='one').character,'walan');assert.notEqual(cookieOne,cookieTwo)});
 await check('Invalid PIN and forged session are rejected',async()=>{assert.equal((await POST(request({action:'login',pin:'00000000'}))).status,401);assert.equal((await get('rr_session='+'a'.repeat(64))).status,401);assert.equal(await verifyPin('00000000',env.PIN_ONE_HASH),false)});
 const store=new Store(env.DB);let g;
 await check('A player cannot join two simultaneous challenges',async()=>{const r=await Promise.allSettled([store.create('one','two',1,0),store.create('two','one',10,2)]);assert.equal(r.filter(x=>x.status==='fulfilled').length,1);g=(await store.room('one')).game;assert.equal(g.status,'pending');assert.equal(g.whiteMs,60000)});
@@ -61,10 +61,19 @@ await check('Upgrade preserves old identities, games, sessions and an occupied b
  assert.deepEqual(legacy.prepare('SELECT player_id FROM game_seats ORDER BY player_id').all().map(r=>r.player_id),['one','two']);
  assert.equal(legacy.prepare("SELECT state FROM games WHERE id='old-finished'").get().state,JSON.stringify(finished));
  legacy.exec("UPDATE players SET pin_hash='retained-hash' WHERE id='two'; INSERT INTO players(id,name,pin_hash) VALUES ('usman','Usman','usman-hash')");
+ legacy.exec("INSERT INTO sessions VALUES ('usman-token','usman',9999999999999)");
+ const usmanGame={...finished,id:'usman-history',white:'usman',black:'one',winner:'usman'};
+ legacy.prepare('INSERT INTO games VALUES (?,NULL,?,0,?,?)').run(usmanGame.id,JSON.stringify(usmanGame),usmanGame.createdAt,usmanGame.finishedAt);
  const retained = Object.fromEntries(['games','sessions','game_seats','pin_settings'].map(table=>[table,legacy.prepare('SELECT * FROM '+table).all()]));
  legacy.exec(readFileSync(new URL('../drizzle/0002_character_names.sql',import.meta.url),'utf8'));
  assert.deepEqual(legacy.prepare('SELECT id,name,pin_hash FROM players ORDER BY id').all().map(r=>({...r})),[
   {id:'one',name:'Walan',pin_hash:null},{id:'two',name:'Gud',pin_hash:'retained-hash'},{id:'usman',name:'Usman',pin_hash:'usman-hash'}
+ ]);
+ legacy.exec(readFileSync(new URL('../drizzle/0003_gud_usman.sql',import.meta.url),'utf8'));
+ assert.deepEqual(legacy.prepare('SELECT id,name,pin_hash,character FROM players ORDER BY id').all().map(r=>({...r})),[
+  {id:'one',name:'Walan',pin_hash:null,character:'walan'},
+  {id:'two',name:'Saif',pin_hash:'retained-hash',character:null},
+  {id:'usman',name:'Gud',pin_hash:'usman-hash',character:'gud'}
  ]);
  for(const [table,rows] of Object.entries(retained))assert.deepEqual(legacy.prepare('SELECT * FROM '+table).all(),rows,table+' must not change during character rename');
  legacy.close();
@@ -82,7 +91,7 @@ await check('Add-player command creates a distinct code without resetting existi
  sql.exec('DELETE FROM attempts');
  const login=await POST(request({action:'login',pin:usman.pin}));assert.equal(login.status,200);
  cookieUsman=login.headers.get('set-cookie').split(';')[0];const data=await login.json();
- assert.equal(data.me,usman.id);assert.equal(data.players.find(p=>p.id===usman.id).name,'Usman');
+ assert.equal(data.me,usman.id);assert.equal(data.players.find(p=>p.id===usman.id).name,'Gud');assert.equal(data.players.find(p=>p.id===usman.id).character,'gud');assert.equal(data.players.find(p=>p.id==='two').character,null);
  assert.deepEqual(data.stats[usman.id],{wins:0,losses:0,draws:0});assert.equal(data.game,null);assert.deepEqual(data.recent,[]);
  assert.ok(!JSON.stringify(data).includes('pin_hash'));assert.ok(!JSON.stringify(data).includes(usman.pin));
 });
@@ -147,7 +156,7 @@ await check('Rematch colors alternate separately for each pairing',async()=>{
 await check('History and exports include only your games; renaming keeps your scores and PIN identity',async()=>{
  await reopened.rename(usman.id,'Usman Updated');
  const data=await (await get(cookieUsman,'?export=all')).json();
- assert.equal(data.me,usman.id);assert.equal(data.players.find(p=>p.id===usman.id).name,'Usman Updated');
+ assert.equal(data.me,usman.id);assert.equal(data.players.find(p=>p.id===usman.id).name,'Usman Updated');assert.equal(data.players.find(p=>p.id===usman.id).character,'gud');assert.equal(sql.prepare(newPlayer('Usman',sql.prepare('SELECT salt FROM pin_settings WHERE id=1').get().salt).sql).get(),undefined);
  assert.ok(data.games.length>0);assert.ok(data.games.every(g=>g.white===usman.id||g.black===usman.id));
  assert.equal(data.recent.length,2);assert.ok(data.recent.every(g=>g.white===usman.id||g.black===usman.id));
  assert.deepEqual(data.stats[usman.id],{wins:1,losses:0,draws:1});
@@ -156,12 +165,17 @@ await check('History and exports include only your games; renaming keeps your sc
  sql.close();env.DB=connect();assert.equal((await (await get(cookieUsman)).json()).stats[usman.id].wins,1);
 });
 
-const {characterFor,characterForColor}=require(new URL('lib/characters.cjs',build).pathname);
-await check('Character identity follows the PIN player when colors swap and leaves other rivals alone',()=>{
- assert.equal(characterFor('one').name,'Walan');assert.equal(characterFor('two').name,'Gud');
- assert.equal(characterForColor('w','one','two').key,'walan');assert.equal(characterForColor('b','one','two').key,'gud');
- assert.equal(characterForColor('w','two','one').key,'gud');assert.equal(characterForColor('b','two','one').key,'walan');
- assert.equal(characterFor(usman.id),null);assert.equal(characterFor('Walan'),null);assert.equal(characterFor(undefined),null);
+const {getCharacter,characterForColor}=require(new URL('lib/characters.cjs',build).pathname);
+await check('PIN-linked character persists through renames and color swaps without giving Saif Gud',async()=>{
+ const room=await reopened.room(usman.id);
+ const walan=room.players.find(p=>p.id==='one'),gud=room.players.find(p=>p.id===usman.id),saif=room.players.find(p=>p.id==='two');
+ assert.equal(getCharacter(walan.character).name,'Walan');assert.equal(getCharacter(gud.character).name,'Gud');
+ assert.equal(getCharacter(saif.character),null);
+ assert.equal(characterForColor('w',walan.character,gud.character).key,'walan');assert.equal(characterForColor('b',walan.character,gud.character).key,'gud');
+ assert.equal(characterForColor('w',gud.character,walan.character).key,'gud');assert.equal(characterForColor('b',gud.character,walan.character).key,'walan');
+ await reopened.rename('two','Gud');
+ assert.equal(getCharacter((await reopened.room('two')).players.find(p=>p.id==='two').character),null);
+ assert.equal(getCharacter(usman.id),null);assert.equal(getCharacter('two'),null);assert.equal(getCharacter(undefined),null);
 });
 const {Chess}=require('chess.js');
 const {squareAt,legalMove,previewMove,premoveReady,premoveTargets}=require(new URL('lib/board.cjs',build).pathname);

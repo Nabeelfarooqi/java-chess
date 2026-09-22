@@ -63,37 +63,45 @@ If the database already exists, do not create a replacement. Copy `cloudflare.te
 
 The deploy script refuses a placeholder database ID. PIN hashes are runtime secrets, not build variables: `PIN_ONE_HASH` and `PIN_TWO_HASH`.
 
-## Add Usman or another rival
+## Add Usman (Gud) or another rival
 
-For an existing deployment, pull the latest code and run `npm run cloudflare:deploy` first. The migrations preserve player IDs, PINs, sessions, games and scores, including a game already in progress. The original Nabeel and Saif profiles are now named Walan and Gud respectively.
+For an existing deployment, pull the latest code and run `npm run cloudflare:deploy` first. The migrations preserve player IDs, PINs, sessions, games and scores, including a game already in progress. Nabeel is Walan, Usman is Gud, and Saif retains his own profile. The corrective character migration updates these display names without transferring identities or scores.
 
-Then run this in your Mac terminal:
+If Usman already has a code, deploying the correction is enough; keep using that code. To invite him on a new installation, run this in your Mac terminal:
 
 ```sh
 npm run cloudflare:add-player -- Usman
 ```
 
-The command creates Usman’s profile and prints his personal **12-digit PIN once**. Save it and send him the site link and that code. Refresh the site to see him under **Play against**. Repeat with another name to invite more people:
+The command creates Usman’s profile as **Gud**, attaches the red character to its generated player ID, and prints his personal **12-digit PIN once**. Save it and send him the site link and that code. Refresh the site to see him under **Play against**. Repeat with another name to invite more people:
 
 ```sh
 npm run cloudflare:add-player -- "Another Friend"
 ```
 
-Adding someone does not change anyone else’s code or scores. Existing Walan/Gud codes remain eight digits. New players receive twelve-digit codes, which cannot collide with the original codes. The server uses a randomly salted PBKDF2 derivation with an indexed hash lookup; plaintext PINs are not stored. Only someone with your Cloudflare account access can use this terminal command. A duplicate name is rejected, rather than silently replacing an existing identity. A player can change their display name in settings without changing their PIN or records.
+Adding someone does not change anyone else’s code or scores. The original Walan/Saif codes remain eight digits; Usman/Gud keeps his twelve-digit code. New players receive twelve-digit codes, which cannot collide with the original codes. The server uses a randomly salted PBKDF2 derivation with an indexed hash lookup; plaintext PINs are not stored. Only someone with your Cloudflare account access can use this terminal command. A duplicate name is rejected, rather than silently replacing an existing identity. A player can change their display name in settings without changing their PIN or records.
 
-**Do not use `cloudflare:pins` to add a friend.** That older command rotates Walan and Gud’s original PINs and revokes all sessions; it does not add players or erase scores. New-player codes cannot be recovered from storage, so save them when displayed.
+**Do not use `cloudflare:pins` to add a friend.** That older command rotates Walan and Saif’s original PINs and revokes all sessions; it does not add players or erase scores. New-player codes cannot be recovered from storage, so save them when displayed.
 
 Database triggers reserve one seat per player atomically and release it with a finished/cancelled game. These triggers are part of `drizzle/0001_multiple_rivals.sql`; preserve them when editing future schema migrations.
 
 ## Walan and Gud characters
 
-The original **Nabeel PIN identifies Walan** (player ID `one`), and the original **Saif PIN identifies Gud** (player ID `two`). Signing in selects your room theme, portrait, and “You are” name. The other player’s portrait appears beside their clock. The board’s four home ranks use their owner’s green or red palette, and each character’s face appears on their king with a small king symbol showing the chess color. Other pieces keep recognizable chess shapes with matching accents.
+| Existing PIN owner | Display name | Character |
+| --- | --- | --- |
+| Nabeel (original ID `one`) | Walan | Green shirt |
+| Usman (his generated player ID) | Gud | Red hoodie |
+| Saif (original ID `two`) | Saif | Standard pieces and initial |
 
-Character ownership follows the authenticated player ID and each game’s white/black assignments. Rematches, flipping the board, dragging, premoves, and Game Review retain the correct character. Usman and future rivals use their existing display names, initials, and standard pieces. A profile rename changes the visible name without transferring its character or scores.
+Signing in selects your room theme, portrait, and “You are” name. The other player’s portrait appears beside their clock. The board’s four home ranks use their owner’s green or red palette, and each character’s face appears on their king with a small king symbol showing the chess color. Other pieces keep recognizable chess shapes with matching accents.
 
-**Existing installations:** deploy normally. The one-time `0002_character_names.sql` migration renames only the two original profiles; it does not regenerate PINs, replace IDs, alter games, or reset records. Refresh an already-open tab after deployment. Do **not** run `cloudflare:pins` for this update.
+Characters are saved on the player record in D1 and sent with the authenticated roster. They follow each game’s white/black assignments through rematches, board flips, dragging, premoves, and Game Review. Changing a display name never transfers the character, PIN, or scores; a unique index prevents assigning the same character twice. Other rivals use their own names, initials, and standard pieces.
 
-The supplied JPEG drawings are stored unchanged in `public/characters/`. CSS frames them as portraits; they are ordinary public site assets. `lib/characters.ts` maps stable IDs to artwork, while `app/characters.css` defines the palettes and portrait framing.
+**Existing installations:** deploy normally. `0003_gud_usman.sql` corrects the previous character release: it restores Saif’s name, gives the existing Usman profile the Gud name/artwork, and retains Walan. The migration locates Usman once by his current Usman/Gud name among additional players, then saves the assignment on that same ID. It does not guess if multiple profiles match. Fresh installations assign Gud when Usman is first added with the existing add-player command.
+
+This update preserves every player ID, PIN hash, session, active seat, and game record. Refresh an already-open tab after deployment. Do **not** run `cloudflare:pins` or create another Usman profile for this correction.
+
+The supplied JPEG drawings are stored unchanged in `public/characters/`. CSS frames them as portraits; they are ordinary public site assets. `lib/characters.ts` resolves the stored character key to artwork, while `app/characters.css` defines the palettes and portrait framing.
 
 ## Board controls and premoves
 

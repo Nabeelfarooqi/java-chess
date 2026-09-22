@@ -38,7 +38,7 @@ if(mode==='pins'){
  run(['secret','bulk','--config',config],JSON.stringify({PIN_ONE_HASH:hash(pinOne),PIN_TWO_HASH:hash(pinTwo)}));
  run(['d1','execute','DB','--remote','--config',config,'--command','DELETE FROM sessions']);
  console.log('\nSave these two personal access codes in a password manager. They are not saved to a file or GitHub.');
- console.log('Your code (Walan): '+pinOne);console.log('Your friend’s code (Gud): '+pinTwo);
+ console.log('Your code (Walan): '+pinOne);console.log('Your friend’s code (Saif): '+pinTwo);
  console.log('Share only your friend’s code with them. Rerunning this command replaces both codes and locks existing sessions.');
 }
 
@@ -56,7 +56,7 @@ if(mode==='add-player'){
  if(!settings)throw new Error('Run npm run cloudflare:deploy first to install the player migration.');
  const player=newPlayer(name,settings.salt);
  const inserted=query(player.sql);
- if(!inserted.some(row=>row.id===player.id))throw new Error('A player with that name already exists. No PINs or scores were changed.');
+ if(!inserted.some(row=>row.id===player.id))throw new Error('A player with that name or character already exists. No PINs or scores were changed.');
  console.log('\nAdded '+player.name+'. Save this code now; it cannot be recovered from the database.');
  console.log(player.name+'’s personal PIN: '+player.pin);
  console.log('Share the site link and this PIN with '+player.name+'. Other PINs and saved scores are unchanged.');
