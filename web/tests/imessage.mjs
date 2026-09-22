@@ -6,7 +6,8 @@ import sharp from 'sharp';
 import { BlueBubbles, localBlueBubblesUrl } from '../scripts/bluebubbles-client.mjs';
 import { chatKind, chatCounts, chatDiagnostics, chatLabel, filterChats } from '../scripts/imessage-chat-list.mjs';
 import { groupActivityReport } from '../scripts/imessage-group-activity.mjs';
-import { Journal, deliver, privateJson } from '../scripts/imessage-core.mjs';
+import { Journal, deliver, privateJson, cloudBridge } from '../scripts/imessage-core.mjs';
+import { connectSavedBridge } from '../scripts/imessage-connect.mjs';
 import { winnerCard } from '../scripts/winner-card.mjs';
 import { findPlayer } from '../scripts/cloudflare-admin.mjs';
 const directory=mkdtempSync(join(tmpdir(),'rival-imessage-'));
@@ -15,6 +16,38 @@ const result={white:{id:'one',name:'Walan',character:'walan'},black:{id:'gud',na
 const job={id:'game:result',kind:'result',gameId:'game',leaseToken:'lease',attempts:1,text:'Gud beat Walan',result};
 let passed=0;async function check(name,fn){await fn();console.log('PASS '+name);passed++;}
 try {
+ await check('Reconnect keeps saved destinations and token, waits through temporary 401 responses, then enables notifications',async()=>{
+  const saved={...config,bridgeToken:'c'.repeat(64)},before=JSON.stringify(saved),calls=[],hashes=[],delays=[],logs=[];
+  let enabled=0,checks=0;
+  const post=cloudBridge(saved,async(url,options)=>{
+   assert.equal(url,config.site+'/api/imessage');assert.equal(options.headers.Authorization,'Bearer '+saved.bridgeToken);
+   assert.deepEqual(JSON.parse(options.body),{action:'status'});calls.push('status');checks++;
+   return checks<=3?Response.json({error:'unauthorized'},{status:401}):Response.json({settings:{enabled},jobs:[]});
+  });
+  const result=await connectSavedBridge(saved,{post,installHash:async hash=>{calls.push('install');hashes.push(hash)},enableNotifications:async()=>{calls.push('enable');enabled=1},pause:async ms=>delays.push(ms),progress:text=>logs.push(text)});
+  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(saved.bridgeToken));
+  assert.deepEqual(hashes,[Buffer.from(digest).toString('hex')]);
+  assert.deepEqual(calls,['status','install','status','status','status','enable','status']);
+  assert.deepEqual(delays,[2000,3000]);assert.equal(result.settings.enabled,1);assert.equal(JSON.stringify(saved),before);
+  assert.ok(!logs.join('').includes(saved.bridgeToken));assert.ok(!logs.join('').includes(hashes[0]));
+ });
+ await check('Persistent bridge rejection and secret upload failures never enable notifications or discard saved selections',async()=>{
+  const saved={...config,bridgeToken:'c'.repeat(64)},before=JSON.stringify(saved);let installs=0,enables=0,checks=0,waited=0;
+  const unauthorized=cloudBridge(saved,async()=>{checks++;return Response.json({}, {status:401})});
+  await assert.rejects(connectSavedBridge(saved,{post:unauthorized,installHash:async()=>installs++,enableNotifications:async()=>enables++,pause:async ms=>{waited+=ms}}),/still returns HTTP 401.*saved destinations are retained/);
+  assert.equal(installs,1);assert.equal(enables,0);assert.equal(checks,7);assert.equal(waited,30000);assert.equal(JSON.stringify(saved),before);
+  await assert.rejects(connectSavedBridge(saved,{post:unauthorized,installHash:async()=>{throw Error('upload failed')},enableNotifications:async()=>enables++}),/upload failed/);assert.equal(enables,0);
+ });
+ await check('A valid saved connection resumes without uploading a new secret; malformed status and invalid config stay blocked',async()=>{
+  const saved={...config,bridgeToken:'c'.repeat(64)};let enables=0;
+  const fail=async()=>{throw Error('must not install a secret')};
+  const post=async()=>({settings:{enabled:enables?1:0},jobs:[]});
+  await connectSavedBridge(saved,{post,installHash:fail,enableNotifications:async()=>enables++});assert.equal(enables,1);
+  await assert.rejects(connectSavedBridge(saved,{post:async()=>({ok:true}),installHash:fail,enableNotifications:async()=>enables++}),/valid chess bridge status/);assert.equal(enables,1);
+  await assert.rejects(connectSavedBridge({...saved,bridgeToken:'bad'},{post:fail,installHash:fail,enableNotifications:fail}),/token is invalid/);
+  await assert.rejects(connectSavedBridge({...saved,groupChatGuid:'any;-;private'},{post:fail,installHash:fail,enableNotifications:fail}),/destinations are invalid/);
+  await assert.rejects(connectSavedBridge(saved,{post:async()=>({settings:{enabled:0},jobs:[]}),installHash:fail,enableNotifications:async()=>{}}),/database still reports notifications disabled/);
+ });
  await check('Duplicate-group activity reads only the latest entry per exact group and never sends, merges, or exposes message content',async()=>{
   const timestamp=Date.UTC(2026,8,22,3,0),calls=[];
   const bb=new BlueBubbles('http://127.0.0.1:1234','test-password',async(url,options)=>{

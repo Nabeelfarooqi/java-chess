@@ -22,7 +22,7 @@ export function cloudBridge(config, fetcher = fetch) {
     let response;
     try { response = await fetcher(site+'/api/imessage', { method: 'POST', redirect: 'error', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer '+config.bridgeToken }, body: JSON.stringify(body), signal: AbortSignal.timeout(20000) }); }
     catch { throw new Error('The chess site could not be reached. Events stay queued.'); }
-    if (!response.ok) throw new Error('Chess bridge returned HTTP '+response.status+'.');
+    if (!response.ok) { const error = new Error('Chess bridge returned HTTP '+response.status+'.'); error.status = response.status; throw error; }
     return response.json();
   };
 }

@@ -54,6 +54,20 @@ At each destination, search by chat name or phone/email before selecting its lis
 
 Review the displayed names and participant addresses, then type `SAVE`. The wizard stores the destinations on the Mac, installs a random bridge-token hash as a Worker secret, verifies the specified site, and enables future notifications. It sends no test messages. Starting the sender after a gap can deliver results queued since setup.
 
+### Connection fails after SAVE (Chess bridge HTTP 401)
+
+Your destinations and bridge token are saved **before** the website connection check. Resume without selecting chats or entering your BlueBubbles password again:
+
+```sh
+cd ~/Projects/java-chess/web
+git pull --ff-only
+npm run imessage:connect
+```
+
+The reconnect command first checks the saved token. If the site returns 401, it verifies that the configured Worker exists and reinstalls only `IMESSAGE_BRIDGE_HASH` from the same saved token. It retries 401/503 verification responses for up to six checks with 30 seconds of backoff, then enables notifications only after successful authentication and confirms the website reports them enabled. This also runs at the end of new setup. It does not change player PINs, chat selections, or the delivery journal, claim events, or send messages.
+
+[Cloudflare secret updates deploy a new Worker version](https://developers.cloudflare.com/workers/configuration/secrets/#adding-secrets-to-your-project). A 401 immediately after an update does not identify whether the cause is a temporary update delay or a wrong target/token. If verification still fails, your destinations remain saved; check that the Worker name/account in `cloudflare.local.json` owns the saved chess-site URL. Do not reset the game database or player PINs. After `Connection verified. Notifications enabled.`, run `npm run imessage:start`.
+
 ### Chats exist in Messages but setup cannot find them
 
 Run the read-only check on your Mac:

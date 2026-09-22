@@ -109,6 +109,8 @@ The setup wizard and sender also support the native `any` chat identifiers retur
 
 If multiple FRQ entries have identical members, `npm run imessage:groups` compares their latest-message timestamps and Chat IDs without sending messages or printing message content. Run it in a second Terminal window while setup stays open, then match the intended Chat ID to the setup list.
 
+If website authentication fails after saving destinations, `npm run imessage:connect` resumes the saved setup and verifies the bridge before enabling notifications. It preserves your chats, PINs, scores, and delivery journal; there is no need to repeat recipient selection.
+
 See [web/README.md](web/README.md) for Cloudflare setup, deployment, PIN management, and verification commands.
 
 Group results rotate through owner-approved win jokes and separate draw phrases for every pairing, while keeping the winner and head-to-head record accurate. Phrase selection stays consistent when a notification is retried.

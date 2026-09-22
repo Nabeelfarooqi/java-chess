@@ -1,11 +1,12 @@
 import { mkdirSync, existsSync, readFileSync, chmodSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { randomBytes, createHash } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { BlueBubbles, localBlueBubblesUrl } from './bluebubbles-client.mjs';
 import { chatKind, chatSummary, chatLabel, filterChats } from './imessage-chat-list.mjs';
-import { privateJson, siteOrigin, cloudBridge } from './imessage-core.mjs';
+import { privateJson, siteOrigin } from './imessage-core.mjs';
 import { question, hidden } from './terminal-input.mjs';
-import { query, wrangler } from './cloudflare-admin.mjs';
+import { query } from './cloudflare-admin.mjs';
+import { finishConnection } from './imessage-connect-cli.mjs';
 const directory = resolve('.imessage'), path = resolve(directory, 'config.json');
 async function choose(chats, label, optional = false) {
   console.log('\n'+label);
@@ -55,9 +56,6 @@ try {
   mkdirSync(directory, { recursive: true, mode: 0o700 }); chmodSync(directory, 0o700);
   // Save credentials before updating Cloudflare so interrupted setup can be rerun safely.
   privateJson(path, config); chmodSync(path, 0o600);
-  wrangler(['secret', 'put', 'IMESSAGE_BRIDGE_HASH'], createHash('sha256').update(bridgeToken).digest('hex')+'\n');
-  // Verify the specified site is actually the Worker just configured.
-  await cloudBridge(config)({ action: 'status' });
-  query('UPDATE notification_settings SET enabled=1 WHERE id=1');
-  console.log('Setup saved. No messages were sent. Run npm run imessage:start to send future challenges and results. Keep BlueBubbles and this sender running on the Mac.');
+  console.log('Destinations saved on this Mac. If connection verification fails, resume with npm run imessage:connect.');
+  await finishConnection(config);
 } catch (error) { console.error(error.message); process.exitCode = 1; }
