@@ -6,6 +6,8 @@ No message is sent by installing the update or running the setup wizard. Deliver
 
 ## 1. Update the chess site
 
+**Changing the free site address:** stop the sender, then run `npm run cloudflare:subdomain -- rivalchess` from your existing `web` folder. It previews the account-wide URL change, updates this Mac's saved chess URL, and keeps the token, chosen chats, and delivery journal. Resume with `npm run imessage:start` after verification succeeds. See [address setup and recovery](README.md#change-the-free-workersdev-address). No new chat selection or player PIN reset is needed.
+
 Apply the accompanying patch, or pull it after it has been pushed to your repository. Then:
 
 ```sh

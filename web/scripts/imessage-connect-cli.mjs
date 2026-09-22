@@ -25,6 +25,7 @@ export async function finishConnection(config) {
 // Importing this function from setup must not run the reconnect CLI.
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
+    if (existsSync(resolve('.cloudflare-subdomain.json')) || existsSync(resolve('.cloudflare-subdomain.lock'))) throw new Error('Finish the address change with npm run cloudflare:subdomain first.');
     const directory = resolve('.imessage'), path = resolve(directory, 'config.json');
     if (!existsSync(path)) throw new Error('No saved destinations. Run npm run imessage:setup first.');
     if (existsSync(resolve(directory, 'sender.lock'))) throw new Error('Stop the running sender before reconnecting.');

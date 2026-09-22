@@ -2,6 +2,24 @@
 
 A private chess club that accompanies the Java desktop game. Open the same link, enter your personal code, choose a rival, and play. No user accounts or ChatGPT login are required.
 
+## Change the free workers.dev address
+
+To replace the personal account name in `rival-room.nfarooqi090.workers.dev`, finish any active games and stop the Mac iMessage sender with **Ctrl+C**. From your existing `web` folder:
+
+```bash
+npm run cloudflare:subdomain -- rivalchess
+```
+
+The command uses your existing Wrangler login, lists the old and proposed URLs for **every Worker in that account**, and asks you to type `CHANGE`. If Cloudflare accepts the name, this game's address becomes `https://rival-room.rivalchess.workers.dev`. Availability is only confirmed by Cloudflare. If the name is taken, choose another, such as `playrivalchess`.
+
+This changes the account subdomain, not the Worker name. It keeps the same deployment, Durable Objects, D1 database, PINs, secrets, and saved scores. No build or redeploy is needed. Other Workers' `workers.dev` links also change; their custom domains are unaffected. Replace old shared links, and sign in again on the new address using your existing PIN.
+
+If iMessage is configured, its saved site URL is updated, its existing token and selected chats are retained, and the delivery journal keeps its original namespace to avoid resending confirmed messages. The command only checks bridge status; it never sends a message or enables notifications. After it succeeds, run `npm run imessage:start`.
+
+If the connection times out or DNS has not updated, wait a minute and rerun the **same command**. An ignored local recovery file records the original account/Worker/database and requested address so the operation can resume without renaming twice. The sender stays blocked until verification completes. A name rejection leaves saved destinations unchanged. If Wrangler needs login, run `npx wrangler login`. For multiple Cloudflare accounts, set the existing game's `account_id` in `cloudflare.local.json` first.
+
+The address follows [Cloudflare's Worker/account URL format](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/); it cannot become just `rivalchess.workers.dev`. The helper uses Cloudflare's [account subdomain API](https://developers.cloudflare.com/api/resources/workers/subresources/subdomains/methods/update/), and captures the Wrangler token privately without saving or printing it.
+
 ## Play
 
 - 1-, 3-, 5-, or 10-minute games, optionally adding two seconds after each move.

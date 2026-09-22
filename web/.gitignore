@@ -48,6 +48,7 @@ next-env.d.ts
 # Local PIN hashes, database configuration, and test state
 .dev.vars*
 cloudflare.local.json
+.cloudflare-subdomain.*
 .test-build/
 
 # Prepared from pinned, integrity-checked upstream assets at build time

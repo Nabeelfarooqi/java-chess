@@ -8,9 +8,10 @@ const directory = resolve('.imessage'), configFile = resolve(directory, 'config.
 let lockHeld = false;
 const lockPath = resolve(directory, 'sender.lock');
 try {
+  if (existsSync(resolve('.cloudflare-subdomain.json')) || existsSync(resolve('.cloudflare-subdomain.lock'))) throw new Error('Finish the address change with npm run cloudflare:subdomain before starting or reviewing the sender.');
   if (!existsSync(configFile)) throw new Error('Run npm run imessage:setup first.');
   const config = JSON.parse(readFileSync(configFile, 'utf8')), post = cloudBridge(config);
-  const journal = new Journal(resolve(directory, 'journal'), config.site);
+  const journal = new Journal(resolve(directory, 'journal'), config.journalSite || config.site);
   const mode = process.argv[2] || 'start';
   if (mode === 'status') {
     const status = await post({ action: 'status' }); console.log('Notifications '+(status.settings?.enabled ? 'enabled' : 'disabled')); console.table(status.jobs);

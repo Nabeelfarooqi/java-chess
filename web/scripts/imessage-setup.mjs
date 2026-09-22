@@ -29,6 +29,7 @@ async function choose(chats, label, optional = false) {
 }
 try {
   if (process.platform !== 'darwin' || !process.stdin.isTTY) throw new Error('Run setup interactively on the Mac signed into Messages.');
+  if (existsSync(resolve('.cloudflare-subdomain.json')) || existsSync(resolve('.cloudflare-subdomain.lock'))) throw new Error('Finish the address change with npm run cloudflare:subdomain first.');
   if (existsSync(resolve(directory, 'sender.lock'))) throw new Error('Stop the running sender before changing its destinations.');
   const previous = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null;
   console.log('Open BlueBubbles Server first. This setup reads chat names/participants but sends no messages.');
@@ -52,7 +53,8 @@ try {
   console.log('Starting the sender later will send as the Apple account signed into Messages on this Mac.');
   if ((await question('Type SAVE to use these destinations: ')) !== 'SAVE') throw new Error('Cancelled. Nothing saved.');
   const bridgeToken = previous?.site === site ? previous.bridgeToken : randomBytes(32).toString('hex');
-  const config = { site, blueBubblesUrl, blueBubblesPassword, bridgeToken, targets, groupChatGuid: group.guid };
+  const config = { site, blueBubblesUrl, blueBubblesPassword, bridgeToken, targets, groupChatGuid: group.guid,
+    ...(previous?.site === site && previous.journalSite ? { journalSite: previous.journalSite } : {}) };
   mkdirSync(directory, { recursive: true, mode: 0o700 }); chmodSync(directory, 0o700);
   // Save credentials before updating Cloudflare so interrupted setup can be rerun safely.
   privateJson(path, config); chmodSync(path, 0o600);
