@@ -1,17 +1,18 @@
+import { memo } from 'react';
 import type { Color, PieceSymbol } from 'chess.js';
 import { getCharacter, type CharacterKey } from '@/lib/characters';
 
-export function CharacterPortrait({ character: key, name = '', className = '' }: { character?: CharacterKey | null; name?: string; className?: string }) {
+export const CharacterPortrait = memo(function CharacterPortrait({ character: key, name = '', className = '' }: { character?: CharacterKey | null; name?: string; className?: string }) {
     const character = getCharacter(key);
     return <span className={`character-portrait ${className}`} data-character={character?.key || 'guest'} aria-hidden="true">
-        {character ? <img src={character.image} alt="" draggable={false} width={1824} height={1367}/> : <span>{name.slice(0, 1).toUpperCase() || '♞'}</span>}
+        {character ? <img src={character.image} alt="" draggable={false} width={character.width} height={character.height} decoding="async"/> : <span>{name.slice(0, 1).toUpperCase() || '♞'}</span>}
     </span>;
-}
+});
 
-export function BoardPiece({ type, color, character: key, hidden = false }: { type: PieceSymbol; color: Color; character?: CharacterKey | null; hidden?: boolean }) {
+export const BoardPiece = memo(function BoardPiece({ type, color, character: key, hidden = false }: { type: PieceSymbol; color: Color; character?: CharacterKey | null; hidden?: boolean }) {
     const character = getCharacter(key), king = type === 'k' && !!character;
     return <span className={`piece ${color === 'w' ? 'white-piece' : 'black-piece'} ${king ? 'character-king' : ''} ${hidden ? 'drag-source' : ''}`} data-character={character?.key} aria-hidden="true">
         <img className="piece-svg" src={`/pieces/${color}${type.toUpperCase()}.svg`} alt="" draggable={false} width={45} height={45}/>
         {king && <CharacterPortrait character={key} className="king-face"/>}
     </span>;
-}
+});

@@ -36,6 +36,18 @@ The address follows [Cloudflare's Worker/account URL format](https://developers.
 
 Optional iMessage notifications use BlueBubbles on your Mac: challenge links go to the chosen rival’s direct chat, and finished games send a text result with the updated pair record to your existing group. Images and memes are paused. Notifications stay off until you explicitly complete setup and run the sender. See [iMessage setup](IMESSAGE_SETUP.md).
 
+## Smoother play and appearance
+
+The header shows **Live** with the last WebSocket round-trip ping, **Backup sync** when HTTP is covering a reconnect, or **Reconnecting** when the game API cannot be reached. The tooltip also gives the last move-confirmation time, which includes server work and is separate from socket ping. These are actual samples, not a promised latency target.
+
+Dragging updates once per animation frame and reuses board bounds until scrolling or resizing changes them. Unchanged game versions retain their object identity, and piece artwork is memoized. Tapped and opponent moves slide into place in 130 ms; castling animates both pieces. Dropped pieces settle immediately, and reduced-motion preferences disable those animations. Server validation and clock rules still apply.
+
+On phones, larger portraits, a visible connection meter, and an outlined active player make the compact board easier to follow. **Room settings → Board style** offers Characters, Classic, and Slate. This browser remembers the selection; personal king artwork remains visible in every style.
+
+Challenges show both characters. A finished game shows the winner or draw, the saved pair record, **Rematch** with the same clock, Game review, and PGN. A rematch sends a fresh challenge that the opponent must accept. The record card waits for the finished game's history update before showing updated totals.
+
+Character images use committed WebP delivery copies: about **291 KiB combined instead of 1,744 KiB** (83% smaller). Original files remain available; dimensions and Saif's alpha transparency are preserved. To regenerate after replacing source artwork, run `node scripts/prepare-characters.mjs` from `web` and commit the resulting WebP files. This is transfer-size reduction, not a measured claim about live game latency.
+
 ## Deploy to your own Cloudflare account
 
 This is a **Cloudflare Worker with D1 and a WebSocket Durable Object**. The Worker runs independently of your PC and serves a `workers.dev` link. A custom domain can be added later.
@@ -224,7 +236,7 @@ Use **The record → Export all** for a complete JSON backup and **Save PGN** fo
 ## Rules and limitations
 
 - The server validates every move and uses its own clock. Client-supplied board positions, results, player IDs, and clocks are not accepted.
-- Committed moves are pushed to both players over authenticated WebSockets. Local legal previews respond immediately; the server still decides the saved position and result. Old responses cannot rewind a newer game version. Lightweight polling recovers missed messages and settles timeouts: normally every two seconds with a live socket, or about every 350 ms plus request time during active play without one. Full roster/history refreshes run separately. Actual latency depends on your network and Cloudflare region; no production latency target is promised.
+- Committed moves are pushed to both players over authenticated WebSockets. Local legal previews respond immediately; the server still decides the saved position and result. Old responses cannot rewind a newer game version. Lightweight polling recovers missed messages and settles timeouts: normally every five seconds with a live socket (previously two), or about every 350 ms plus request time during active play without one. An additional clock-deadline check and shorter polling near zero settle flag falls without waiting five seconds. Full roster/history refreshes run separately. Actual latency depends on your network and Cloudflare region; no production latency target is promised.
 - Threefold repetition and the 50-move rule are automatic draws, using chess.js's online-game convention.
 - On timeout, the result is drawn if the non-flagging side has only a king, a single bishop or knight, or bishops all on one color; otherwise it wins. This is a practical room rule, not a full FIDE possible-mate adjudicator.
 - A disconnected player's clock continues. If both leave, a timeout is recorded the next time the room is requested or the enabled Mac sender checks for events, using the persisted clock state.
@@ -241,7 +253,7 @@ npm run typecheck
 npm run build
 ```
 
-Tests use disposable local SQLite databases and the local Workers/Miniflare runtime bundled with Wrangler. They verify access control, CSRF protection, rate limiting, multiple PIN identities, participant authorization, independent pair scores, safe upgrades and character renaming of existing records, character ownership across color swaps, legal moves, special moves, checkmate, draws, clock expiry, concurrent writes, session revocation, persistence after reopening the database, castling on both sides for both colors, premove legality, stale response handling, review classification, and authenticated WebSocket delivery/revocation. They also check six-digit PIN replacement and duplicate rejection, notification migrations/leases, stale challenge suppression, result scores, uncertain sends, retry journals, documented BlueBubbles request formats, and PNG rendering. Spectator checks cover disabled access, code collisions, origin/rate limits, live game selection, blocked player/notification actions, persistence, session expiry, rotation/disable/logout, and denial of player WebSocket access. They do not contact your Cloudflare account or send real messages. Live Apple Messages permissions and delivery must be checked on the Mac after setup.
+Tests use disposable local SQLite databases and the local Workers/Miniflare runtime bundled with Wrangler. They verify access control, CSRF protection, rate limiting, multiple PIN identities, participant authorization, independent pair scores, safe upgrades and character renaming of existing records, character ownership across color swaps, legal moves, special moves, checkmate, draws, clock expiry, concurrent writes, session revocation, persistence after reopening the database, castling on both sides for both colors, premove legality, stale response handling, stable duplicate-game updates, clock-aware polling, result-card pairing/freshness, connection status, review classification, and authenticated WebSocket delivery/revocation. They also check six-digit PIN replacement and duplicate rejection, notification migrations/leases, stale challenge suppression, result scores, uncertain sends, retry journals, documented BlueBubbles request formats, and PNG rendering. Spectator checks cover disabled access, code collisions, origin/rate limits, live game selection, blocked player/notification actions, persistence, session expiry, rotation/disable/logout, and denial of player WebSocket access. They do not contact your Cloudflare account or send real messages. Live Apple Messages permissions and delivery must be checked on the Mac after setup.
 
 The app uses React, TypeScript, Vinext, chess.js, Cloudflare D1, WebSocket Durable Objects, and a separately loaded Stockfish browser worker. The original Java Swing game remains in the repository root and opens normally in IntelliJ.
 
@@ -252,7 +264,8 @@ The app uses React, TypeScript, Vinext, chess.js, Cloudflare D1, WebSocket Durab
 | `worker.ts` | Cloudflare entry point, game API routing, authenticated WebSocket upgrades. |
 | `lib/server/api.ts`, `store.ts` | Request validation, authoritative D1 transactions, and compact/full snapshots. |
 | `lib/server/player-live.ts`, `live.ts` | Per-player notification hubs and post-commit broadcasts. |
-| `app/use-room.ts`, `lib/room-update.ts` | Fetching, reconnects, fallback polling, and stale-version protection. |
+| `app/use-room.ts`, `lib/room-update.ts`, `lib/connection.ts` | Fetching, reconnects, measured ping, clock-aware polling, and stale-version protection. |
+| `app/connection-meter.tsx`, `app/match-result.tsx`, `app/play-polish.css` | Connection feedback, character matchups, result/rematch card, mobile polish, and board styles. |
 | `app/chess-board.tsx`, `lib/board.ts` | Mouse/touch input, legal previews, castling input, and premoves. |
 | `lib/characters.ts`, `app/character-art.tsx`, `app/characters.css` | PIN-identity artwork, character kings, board camps, and room palettes. |
 | `app/player-clock.tsx` | Clock updates isolated from board rendering. |

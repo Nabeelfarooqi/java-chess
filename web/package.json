@@ -12,7 +12,7 @@
     "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
-    "test": "node tests/run.mjs && node tests/realtime.mjs && node tests/imessage.mjs && npm run test:subdomain",
+    "test": "node tests/run.mjs && node tests/presentation.mjs && node tests/realtime.mjs && node tests/imessage.mjs && npm run test:subdomain",
     "typecheck": "tsc --noEmit",
     "cloudflare:setup": "node scripts/cloudflare-setup.mjs setup",
     "cloudflare:deploy": "node scripts/cloudflare-setup.mjs deploy",

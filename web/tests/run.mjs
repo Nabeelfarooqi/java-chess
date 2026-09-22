@@ -7,7 +7,7 @@ import {newPlayer} from '../scripts/player-pin.mjs';
 import {pinUpdate} from '../scripts/set-pin.mjs';
 import {spectatorPinUpdate} from '../scripts/spectator-pin.mjs';
 const build=new URL('../.test-build/',import.meta.url);mkdirSync(build,{recursive:true});
-const files=['lib/server/spectator.ts','lib/spectator.ts','lib/material.ts','lib/server/imessage.ts','lib/characters.ts','lib/board.ts','lib/room-update.ts','lib/review.ts','lib/game.ts','lib/server/auth.ts','lib/server/store.ts','lib/server/live.ts','lib/server/api.ts','app/api/room/route.ts'];
+const files=['lib/connection.ts','lib/server/spectator.ts','lib/spectator.ts','lib/material.ts','lib/server/imessage.ts','lib/characters.ts','lib/board.ts','lib/room-update.ts','lib/review.ts','lib/game.ts','lib/server/auth.ts','lib/server/store.ts','lib/server/live.ts','lib/server/api.ts','app/api/room/route.ts'];
 for(const file of files){let source=readFileSync(new URL('../'+file,import.meta.url),'utf8');
  if(file==='app/api/room/route.ts')source=source.replace("'cloudflare:workers'","'../../../env.cjs'").replaceAll("'@/lib/","'../../../lib/");
  source=source.replace(/from '(\.{1,2}\/[^']+)'/g,(_,path)=>`from '${path.endsWith('.cjs')?path:path+'.cjs'}'`);
@@ -178,7 +178,7 @@ await check('PIN-linked characters stay with Walan, Gud, and Saif across renames
  const room=await reopened.room(usman.id);
  const walan=room.players.find(p=>p.id==='one'),gud=room.players.find(p=>p.id===usman.id),saif=room.players.find(p=>p.id==='two');
  assert.equal(getCharacter(walan.character).name,'Walan');assert.equal(getCharacter(gud.character).name,'Gud');
- assert.equal(getCharacter(saif.character).name,'Saif');assert.equal(getCharacter(saif.character).image,'/characters/saif.png');
+ assert.equal(getCharacter(saif.character).name,'Saif');assert.equal(getCharacter(saif.character).image,'/characters/saif.webp');
  assert.equal(characterForColor('w',walan.character,gud.character).key,'walan');assert.equal(characterForColor('b',walan.character,gud.character).key,'gud');
  assert.equal(characterForColor('w',gud.character,walan.character).key,'gud');assert.equal(characterForColor('b',gud.character,walan.character).key,'walan');
  for(const white of [walan,gud,saif])for(const black of [walan,gud,saif]){
@@ -269,6 +269,30 @@ await check('Late polling responses cannot rewind a live board',()=>{
  assert.equal(mergeRoom(old,{me:'one',game:{...game,version:2},serverNow:200}),old);
  assert.equal(mergeRoom(old,{me:'one',game:{...game,version:4},serverNow:101}).game.version,4);
  assert.equal(mergeRoom(old,{me:'two',game,serverNow:200}),old);
+});
+await check('Duplicate game versions preserve board identity while fresh records and clock samples update',()=>{
+ const game=createGame('one','two',5,0),old={me:'one',game,serverNow:100,players:[],stats:{},headToHead:{},recent:[]};
+ const update=mergeRoom(old,{...old,game:structuredClone(game),serverNow:200,headToHead:{two:{wins:2,losses:1,draws:0}}});
+ assert.equal(update.game,game);assert.equal(update.serverNow,200);assert.equal(update.headToHead.two.wins,2);
+ const newer={...game,version:1,status:'active',turnAt:201};
+ assert.equal(mergeRoom(update,{me:'one',game:newer,serverNow:201}).game,newer);
+ const next=createGame('one','two',5,0,game.createdAt+1);
+ assert.equal(mergeRoom(update,{me:'one',game:next,serverNow:202}).game,next);
+ assert.equal(mergeRoom(update,{me:'one',game:structuredClone(game),serverNow:99}),update);
+});
+const {roomPollDelay}=require(new URL('lib/connection.cjs',build).pathname);
+await check('Healthy sockets reduce polling without delaying flag checks or fast fallback',()=>{
+ let match=transition(createGame('one','two',1,2,1000),'two','accept',{},2000);
+ assert.equal(roomPollDelay(match,true,false,2000),5000);
+ assert.equal(roomPollDelay(match,false,false,2000),350);
+ assert.equal(roomPollDelay(match,true,false,61000),1080);
+ assert.equal(roomPollDelay(match,true,false,62000),250);
+ assert.equal(roomPollDelay(match,true,true,61000),5000);
+ match=transition(match,'one','move',{from:'e2',to:'e4'},61000);
+ assert.equal(roomPollDelay(match,true,false,61000),5000);
+ assert.equal(roomPollDelay(match,true,false,120000),1080);
+ assert.equal(roomPollDelay({...match,status:'finished'},true,false,200000),5000);
+ assert.equal(roomPollDelay(null,false,false,2000),1500);
 });
 await check('Review normalizes engine scores to White and classifies errors for either side',()=>{
  assert.equal(parseInfo('info depth 15 score cp 120 pv e7e5','b').cp,-120);

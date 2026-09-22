@@ -3,6 +3,7 @@ import "./globals.css";
 import "./characters.css";
 import "./mobile.css";
 import "./spectator.css";
+import "./play-polish.css";
 
 export const viewport: Viewport = { width: 'device-width', initialScale: 1, viewportFit: 'cover', themeColor: '#131713' };
 

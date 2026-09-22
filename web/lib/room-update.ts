@@ -8,5 +8,8 @@ export function mergeRoom(old: Room | null, update: RoomUpdate): Room | null {
     if (a && b && a.id === b.id && b.version < a.version) return old;
     if (a && b && a.id !== b.id && (b.createdAt < a.createdAt || update.serverNow < old.serverNow)) return old;
     if (update.serverNow < old.serverNow && (!b || !a || (a.id === b.id && b.version <= a.version))) return old;
-    return { ...old, ...update } as Room;
+    // Polling and move acknowledgements frequently repeat the same version.
+    // Keep the game identity stable so the board and its callbacks can stay memoized.
+    const game = a && b && a.id === b.id && a.version === b.version ? a : b;
+    return { ...old, ...update, game } as Room;
 }
