@@ -1,15 +1,16 @@
 import type { Color } from 'chess.js';
 
-export type CharacterKey = 'walan' | 'gud';
+export type CharacterKey = 'walan' | 'gud' | 'saif';
 const characters = {
     walan: { key: 'walan', name: 'Walan', image: '/characters/walan.jpeg' },
     gud: { key: 'gud', name: 'Gud', image: '/characters/gud.jpeg' },
+    saif: { key: 'saif', name: 'Saif', image: '/characters/saif.png' },
 } as const;
 export type Character = typeof characters[keyof typeof characters];
 // The server sends the character saved on the PIN's player record.
 // Display-name edits and chess-color changes never transfer ownership.
 export function getCharacter(key?: CharacterKey | null): Character | null {
-    return key === 'walan' ? characters.walan : key === 'gud' ? characters.gud : null;
+    return key === 'walan' ? characters.walan : key === 'gud' ? characters.gud : key === 'saif' ? characters.saif : null;
 }
 export function characterForColor(color: Color, white?: CharacterKey | null, black?: CharacterKey | null) {
     return getCharacter(color === 'w' ? white : black);

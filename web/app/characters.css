@@ -15,6 +15,15 @@ html[data-character="gud"] {
     --accent: #513039; --accent-foreground: #fff0eb;
     --border: #65444e; --input: #815761; --ring: #ffac99;
 }
+html[data-character="saif"] {
+    --background: #111b20; --foreground: #eff9f6; --card: #1b2b32;
+    --card-foreground: #eff9f6; --popover: #1b2b32; --popover-foreground: #eff9f6;
+    --primary: #9adeec; --primary-foreground: #142c34;
+    --secondary: #283e47; --secondary-foreground: #eff9f6;
+    --muted: #283e47; --muted-foreground: #b1cbd2;
+    --accent: #31515d; --accent-foreground: #eff9f6;
+    --border: #42616c; --input: #557d8a; --ring: #9adeec;
+}
 .character-portrait {
     position: relative; display: inline-grid; place-items: center; overflow: hidden;
     width: 58px; height: 64px; flex: 0 0 auto; border-radius: 14px;
@@ -29,6 +38,12 @@ html[data-character="gud"] {
 }
 .character-portrait[data-character="walan"] { border-color: #94d68d; }
 .character-portrait[data-character="gud"] { border-color: #ed9289; }
+.character-portrait[data-character="saif"] { border-color: #74bbcb; background: #d1edf0; }
+/* Saif is a transparent cutout; contain the whole drawing instead of cropping a poster. */
+.character-portrait[data-character="saif"] > img {
+    position: static; width: 100%; max-width: 100%; height: 100%;
+    object-fit: contain; transform: none;
+}
 .club-identity { display: flex; gap: 14px; align-items: center; }
 .club-identity > div { min-width: 0; }
 .identity-portrait { width: 64px; height: 70px; transform: rotate(-4deg); }
@@ -45,6 +60,7 @@ html[data-character="gud"] {
 }
 .character-player[data-character="walan"] { --team-bright: #b4f1a4; --team-surface: #203a29; --team-edge: #6b9d6d; }
 .character-player[data-character="gud"] { --team-bright: #ffc2b4; --team-surface: #41262a; --team-edge: #b47170; }
+.character-player[data-character="saif"] { --team-bright: #a9e5ef; --team-surface: #213a45; --team-edge: #689daa; }
 .board-frame + .character-player { padding: 10px 13px; margin: 10px 0 0; }
 .character-player .player-info strong { font-size: 17px; color: #fff4e9; }
 .character-player .player-info > span { font-size: 12px; color: #ded9cf; }
@@ -60,6 +76,8 @@ html[data-character="gud"] {
 .square[data-camp="walan"].dark { background: #729769; }
 .square[data-camp="gud"].light { background: #efd8cc; }
 .square[data-camp="gud"].dark { background: #b27472; }
+.square[data-camp="saif"].light { background: #d0e6e9; }
+.square[data-camp="saif"].dark { background: #6798a4; }
 .square.selected { background: #e7d16b !important; }
 .square.premove-square { background: #7187b5 !important; }
 .square.premove-square.selected { background: #93a4c7 !important; }

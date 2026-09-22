@@ -24,7 +24,7 @@ const get=(cookie='',suffix='')=>GET(new Request('https://rival.test/api/room'+s
 let cookieOne,cookieTwo;
 await check('Anonymous game data and exports are blocked',async()=>{assert.equal((await get()).status,401);assert.equal((await get('','?export=all')).status,401);assert.equal((await POST(request({action:'create',minutes:5,increment:0}))).status,401)});
 await check('Cross-origin writes and malformed JSON are rejected',async()=>{assert.equal((await POST(request({action:'login',pin:testPins[0]},'','https://other.test'))).status,403);assert.equal((await POST(new Request('https://rival.test/api/room',{method:'POST',headers:{Origin:'https://rival.test','Content-Type':'application/json'},body:'['}))).status,400)});
-await check('Original PINs still resolve to the original player identities',async()=>{const a=await POST(request({action:'login',pin:testPins[0]}));assert.equal(a.status,200);cookieOne=a.headers.get('set-cookie').split(';')[0];assert.match(a.headers.get('set-cookie'),/HttpOnly.*SameSite=Strict.*Secure/);const walan=await a.json();assert.equal(walan.me,'one');assert.equal(walan.players.find(p=>p.id==='one').name,'Walan');const b=await POST(request({action:'login',pin:testPins[1]}));assert.equal(b.status,200);cookieTwo=b.headers.get('set-cookie').split(';')[0];const saif=await b.json();assert.equal(saif.me,'two');assert.equal(saif.players.find(p=>p.id==='two').name,'Saif');assert.equal(saif.players.find(p=>p.id==='two').character,null);assert.equal(saif.players.find(p=>p.id==='one').character,'walan');assert.notEqual(cookieOne,cookieTwo)});
+await check('Original PINs still resolve to the original player identities',async()=>{const a=await POST(request({action:'login',pin:testPins[0]}));assert.equal(a.status,200);cookieOne=a.headers.get('set-cookie').split(';')[0];assert.match(a.headers.get('set-cookie'),/HttpOnly.*SameSite=Strict.*Secure/);const walan=await a.json();assert.equal(walan.me,'one');assert.equal(walan.players.find(p=>p.id==='one').name,'Walan');const b=await POST(request({action:'login',pin:testPins[1]}));assert.equal(b.status,200);cookieTwo=b.headers.get('set-cookie').split(';')[0];const saif=await b.json();assert.equal(saif.me,'two');assert.equal(saif.players.find(p=>p.id==='two').name,'Saif');assert.equal(saif.players.find(p=>p.id==='two').character,'saif');assert.equal(saif.players.find(p=>p.id==='one').character,'walan');assert.notEqual(cookieOne,cookieTwo)});
 await check('Invalid PIN and forged session are rejected',async()=>{assert.equal((await POST(request({action:'login',pin:'00000000'}))).status,401);assert.equal((await get('rr_session='+'a'.repeat(64))).status,401);assert.equal(await verifyPin('00000000',env.PIN_ONE_HASH),false)});
 const store=new Store(env.DB);let g;
 await check('A player cannot join two simultaneous challenges',async()=>{const r=await Promise.allSettled([store.create('one','two',1,0),store.create('two','one',10,2)]);assert.equal(r.filter(x=>x.status==='fulfilled').length,1);g=(await store.room('one')).game;assert.equal(g.status,'pending');assert.equal(g.whiteMs,60000)});
@@ -77,6 +77,12 @@ await check('Upgrade preserves old identities, games, sessions and an occupied b
   {id:'usman',name:'Gud',pin_hash:'usman-hash',character:'gud'}
  ]);
  for(const [table,rows] of Object.entries(retained))assert.deepEqual(legacy.prepare('SELECT * FROM '+table).all(),rows,table+' must not change during character rename');
+ legacy.exec("UPDATE players SET name='Custom Saif' WHERE id='two'; INSERT INTO players(id,name,pin_hash) VALUES ('different-id','Saif','another-hash')");
+ const beforeSaif=legacy.prepare('SELECT * FROM players ORDER BY id').all().map(r=>({...r}));
+ const saifMigration=readFileSync(new URL('../drizzle/0005_saif_character.sql',import.meta.url),'utf8');
+ legacy.exec(saifMigration);legacy.exec(saifMigration);
+ assert.deepEqual(legacy.prepare('SELECT * FROM players ORDER BY id').all().map(r=>({...r})),beforeSaif.map(p=>p.id==='two'?{...p,character:'saif'}:p));
+ for(const [table,rows] of Object.entries(retained))assert.deepEqual(legacy.prepare('SELECT * FROM '+table).all(),rows,table+' must not change when assigning Saif artwork');
  legacy.close();
 });
 let usman,cookieUsman;
@@ -92,7 +98,7 @@ await check('Add-player command creates a distinct code without resetting existi
  sql.exec('DELETE FROM attempts');
  const login=await POST(request({action:'login',pin:usman.pin}));assert.equal(login.status,200);
  cookieUsman=login.headers.get('set-cookie').split(';')[0];const data=await login.json();
- assert.equal(data.me,usman.id);assert.equal(data.players.find(p=>p.id===usman.id).name,'Gud');assert.equal(data.players.find(p=>p.id===usman.id).character,'gud');assert.equal(data.players.find(p=>p.id==='two').character,null);
+ assert.equal(data.me,usman.id);assert.equal(data.players.find(p=>p.id===usman.id).name,'Gud');assert.equal(data.players.find(p=>p.id===usman.id).character,'gud');assert.equal(data.players.find(p=>p.id==='two').character,'saif');
  assert.deepEqual(data.stats[usman.id],{wins:0,losses:0,draws:0});assert.equal(data.game,null);assert.deepEqual(data.recent,[]);
  assert.ok(!JSON.stringify(data).includes('pin_hash'));assert.ok(!JSON.stringify(data).includes(usman.pin));
 });
@@ -167,15 +173,20 @@ await check('History and exports include only your games; renaming keeps your sc
 });
 
 const {getCharacter,characterForColor}=require(new URL('lib/characters.cjs',build).pathname);
-await check('PIN-linked character persists through renames and color swaps without giving Saif Gud',async()=>{
+await check('PIN-linked characters stay with Walan, Gud, and Saif across renames and color swaps',async()=>{
  const room=await reopened.room(usman.id);
  const walan=room.players.find(p=>p.id==='one'),gud=room.players.find(p=>p.id===usman.id),saif=room.players.find(p=>p.id==='two');
  assert.equal(getCharacter(walan.character).name,'Walan');assert.equal(getCharacter(gud.character).name,'Gud');
- assert.equal(getCharacter(saif.character),null);
+ assert.equal(getCharacter(saif.character).name,'Saif');assert.equal(getCharacter(saif.character).image,'/characters/saif.png');
  assert.equal(characterForColor('w',walan.character,gud.character).key,'walan');assert.equal(characterForColor('b',walan.character,gud.character).key,'gud');
  assert.equal(characterForColor('w',gud.character,walan.character).key,'gud');assert.equal(characterForColor('b',gud.character,walan.character).key,'walan');
+ for(const white of [walan,gud,saif])for(const black of [walan,gud,saif]){
+  assert.equal(characterForColor('w',white.character,black.character).key,white.character);
+  assert.equal(characterForColor('b',white.character,black.character).key,black.character);
+ }
+ assert.equal(newPlayer('Saif',sql.prepare('SELECT salt FROM pin_settings WHERE id=1').get().salt).character,null); // A matching display name does not grant his artwork.
  await reopened.rename('two','Gud');
- assert.equal(getCharacter((await reopened.room('two')).players.find(p=>p.id==='two').character),null);
+ assert.equal(getCharacter((await reopened.room('two')).players.find(p=>p.id==='two').character).key,'saif');
  assert.equal(getCharacter(usman.id),null);assert.equal(getCharacter('two'),null);assert.equal(getCharacter(undefined),null);
 });
 const {Chess}=require('chess.js');
@@ -312,7 +323,7 @@ await check('A finished game queues one result with both identities, characters,
  await assert.rejects(reopened.act('one','resign',{gameId:notificationGame.id,version:notificationGame.version}));
  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM notification_outbox WHERE kind='result'").get().n,1);
  const job=(await (await bridge({action:'claim'})).json()).job;
- assert.equal(job.kind,'result');assert.equal(job.result.winnerId,'two');assert.equal(job.result.white.character,'walan');assert.equal(job.result.black.character,null);
+ assert.equal(job.kind,'result');assert.equal(job.result.winnerId,'two');assert.equal(job.result.white.character,'walan');assert.equal(job.result.black.character,'saif');
  assert.ok(job.result.score.blackWins>=1);assert.equal(job.result.reason,'Resignation');
  assert.match(job.text,/^Saif (?:gooned on Nabeel|beat Nabeel’s ass)/);assert.doesNotMatch(job.text,/https?:\/\/|Walan|Gud/);assert.equal(job.recipientId,null);
  const record=(await reopened.room('one')).headToHead.two;

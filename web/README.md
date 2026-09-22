@@ -13,7 +13,7 @@ A private chess club that accompanies the Java desktop game. Open the same link,
 - Games and clocks survive refreshes. Closing the browser does not stop the clock.
 - Saved wins, losses, draws, recent history, individual PGN downloads and a full JSON backup.
 - Choose from the club roster; each person can have one active game or challenge at a time. Different pairs can play simultaneously.
-- PIN-linked characters: Walan’s green room and Gud’s red room, with their supplied portraits, themed board halves, and character kings. Other rivals keep their own names and neutral artwork.
+- PIN-linked characters: Walan’s green room, Gud’s red room, and Saif’s blue room, with their portraits, themed board halves, and character kings. Other rivals keep their own names and neutral artwork.
 - Personal display names. One PIN belongs to each player; do not share your own PIN.
 
 Optional iMessage notifications use BlueBubbles on your Mac: challenge links go to the chosen rival’s direct chat, and finished games send a text result with the updated pair record to your existing group. Images and memes are paused. Notifications stay off until you explicitly complete setup and run the sender. See [iMessage setup](IMESSAGE_SETUP.md).
@@ -132,23 +132,25 @@ For this club, map **Gud to Usman's direct conversation**, **Saif to Saif's dire
 
 The queue is disabled by default and does not announce historical games. Cancelled, accepted, or expired challenges are skipped before delivery. Results wait while the Mac is offline. Database triggers enqueue each event with the saved game transaction; a lease and a local delivery journal prevent routine reconnects from resending confirmed parts. If BlueBubbles might have sent a message but did not confirm it, the event pauses for manual review instead of being blindly retried. No external messaging system can promise exactly-once delivery across every interruption.
 
-## Walan and Gud characters
+## Walan, Gud, and Saif characters
 
 | Existing PIN owner | Display name | Character |
 | --- | --- | --- |
 | Nabeel (original ID `one`) | Walan | Green shirt |
 | Usman (his generated player ID) | Gud | Red hoodie |
-| Saif (original ID `two`) | Saif | Standard pieces and initial |
+| Saif (original ID `two`) | Saif | Turquoise drawing with transparent background |
 
-Signing in selects your room theme, portrait, and “You are” name. The other player’s portrait appears beside their clock. The board’s four home ranks use their owner’s green or red palette. Walan and Gud’s faces fill their king pieces, with a small white/black SVG king badge showing their chess color. Other pieces use fixed white/black SVG artwork, including pawns, so iOS cannot substitute emoji or hide the chess color.
+Signing in selects your room theme, portrait, and “You are” name. The other player’s portrait appears beside their clock. The board’s four home ranks use their owner’s green, red, or blue palette. Walan, Gud, and Saif’s drawings fill their king pieces, with a small white/black SVG king badge showing their chess color. Other pieces use fixed white/black SVG artwork, including pawns, so iOS cannot substitute emoji or hide the chess color.
 
 Characters are saved on the player record in D1 and sent with the authenticated roster. They follow each game’s white/black assignments through rematches, board flips, dragging, premoves, and Game Review. Changing a display name never transfers the character, PIN, or scores; a unique index prevents assigning the same character twice. Other rivals use their own names, initials, and standard pieces.
 
-**Existing installations:** deploy normally. `0003_gud_usman.sql` corrects the previous character release: it restores Saif’s name, gives the existing Usman profile the Gud name/artwork, and retains Walan. The migration locates Usman once by his current Usman/Gud name among additional players, then saves the assignment on that same ID. It does not guess if multiple profiles match. Fresh installations assign Gud when Usman is first added with the existing add-player command.
+**Saif artwork update:** deploy normally. `0005_saif_character.sql` assigns the transparent drawing only to original player ID `two`, even if he has changed his display name. It does not match other players named Saif or change any names, PINs, sessions, games, or scores. Fresh installations assign his character when the original players are first created.
+
+**Earlier character migrations:** `0003_gud_usman.sql` corrects the previous character release: it restores Saif’s name, gives the existing Usman profile the Gud name/artwork, and retains Walan. The migration locates Usman once by his current Usman/Gud name among additional players, then saves the assignment on that same ID. It does not guess if multiple profiles match. Fresh installations assign Gud when Usman is first added with the existing add-player command.
 
 This update preserves every player ID, PIN hash, session, active seat, and game record. Refresh an already-open tab after deployment. Do **not** run `cloudflare:pins` or create another Usman profile for this correction.
 
-The supplied JPEG drawings are stored unchanged in `public/characters/`. CSS frames them as portraits; they are ordinary public site assets. `lib/characters.ts` resolves the stored character key to artwork, while `app/characters.css` defines the palettes and portrait framing.
+The Walan/Gud JPEG drawings are stored unchanged in `public/characters/`. Saif’s `saif.png` is a transparent cutout made from the supplied drawing; his pale blue portrait frame keeps its dark outlines readable without a black background. CSS contains his whole drawing and crops the older posters. These are ordinary public site assets. `lib/characters.ts` resolves the stored character key to artwork, while `app/characters.css` defines the palettes and portrait framing.
 
 ## Board controls and premoves
 
