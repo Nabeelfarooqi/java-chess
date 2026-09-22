@@ -5,7 +5,7 @@ import {DatabaseSync} from 'node:sqlite';
 import assert from 'node:assert/strict';
 import {newPlayer} from '../scripts/player-pin.mjs';
 const build=new URL('../.test-build/',import.meta.url);mkdirSync(build,{recursive:true});
-const files=['lib/game.ts','lib/server/auth.ts','lib/server/store.ts','app/api/room/route.ts'];
+const files=['lib/board.ts','lib/room-update.ts','lib/review.ts','lib/game.ts','lib/server/auth.ts','lib/server/store.ts','lib/server/live.ts','lib/server/api.ts','app/api/room/route.ts'];
 for(const file of files){let source=readFileSync(new URL('../'+file,import.meta.url),'utf8');
  if(file==='app/api/room/route.ts')source=source.replace("'cloudflare:workers'","'../../../env.cjs'").replaceAll("'@/lib/","'../../../lib/");
  source=source.replace(/from '(\.{1,2}\/[^']+)'/g,(_,path)=>`from '${path.endsWith('.cjs')?path:path+'.cjs'}'`);
@@ -14,7 +14,7 @@ for(const file of files){let source=readFileSync(new URL('../'+file,import.meta.
 writeFileSync(new URL('env.cjs',build),'exports.env = {};');
 const require=createRequire(import.meta.url);const {env}=require(new URL('env.cjs',build).pathname);const {createGame,transition,expireGame,clockMs,replay,pgn}=require(new URL('lib/game.cjs',build).pathname);const {Store}=require(new URL('lib/server/store.cjs',build).pathname);const {pinHash,verifyPin,sessionPlayer,sessionCookie}=require(new URL('lib/server/auth.cjs',build).pathname);const {GET,POST}=require(new URL('app/api/room/route.cjs',build).pathname);
 const path=new URL('test.sqlite',build).pathname;try{rmSync(path)}catch{};let sql;
-function connect(){sql=new DatabaseSync(path);return {prepare(text){const values=[];const statement={bind(...args){values.push(...args);return statement},async first(){return sql.prepare(text).get(...values)||null},async all(){return {results:sql.prepare(text).all(...values)}},async run(){const r=sql.prepare(text).run(...values);return {meta:{changes:Number(r.changes)},success:true}}};return statement;},async batch(statements){sql.exec('BEGIN');try{const values=[];for(const statement of statements)values.push(await statement.run());sql.exec('COMMIT');return values}catch(e){sql.exec('ROLLBACK');throw e}}}}
+function connect(){sql=new DatabaseSync(path);return {prepare(text){const values=[];const statement={bind(...args){values.push(...args);return statement},async first(){return sql.prepare(text).get(...values)||null},async all(){return {results:sql.prepare(text).all(...values)}},async run(){const prepared=sql.prepare(text);if(prepared.columns().length)return {results:prepared.all(...values),meta:{changes:0},success:true};const r=prepared.run(...values);return {results:[],meta:{changes:Number(r.changes)},success:true}}};return statement;},async batch(statements){sql.exec('BEGIN');try{const values=[];for(const statement of statements)values.push(await statement.run());sql.exec('COMMIT');return values}catch(e){sql.exec('ROLLBACK');throw e}}}}
 env.DB=connect();for(const f of readdirSync(new URL('../drizzle/',import.meta.url)).filter(f=>f.endsWith('.sql')).sort())sql.exec(readFileSync(new URL('../drizzle/'+f,import.meta.url),'utf8'));
 const testPins=['19462850','60392714'];env.PIN_ONE_HASH='local-one:'+await pinHash(testPins[0],'local-one');env.PIN_TWO_HASH='local-two:'+await pinHash(testPins[1],'local-two');
 let passed=0;async function check(name,fn){await fn();console.log('PASS '+name);passed++;}
@@ -147,5 +147,57 @@ await check('History and exports include only your games; renaming keeps your sc
  const text=JSON.stringify(data);assert.ok(!text.includes('pin_hash'));assert.ok(!text.includes(usman.pin));assert.ok(!text.includes('token_hash'));
  const again=await POST(request({action:'login',pin:usman.pin}));assert.equal((await again.json()).me,usman.id);
  sql.close();env.DB=connect();assert.equal((await (await get(cookieUsman)).json()).stats[usman.id].wins,1);
+});
+
+const {Chess}=require('chess.js');
+const {squareAt,legalMove,previewMove,premoveReady,premoveTargets}=require(new URL('lib/board.cjs',build).pathname);
+const {mergeRoom}=require(new URL('lib/room-update.cjs',build).pathname);
+const {parseInfo,classify}=require(new URL('lib/review.cjs',build).pathname);
+await check('Drag coordinates match both orientations and reject off-board drops',()=>{
+ assert.equal(squareAt(1,1,800,'w'),'a8');assert.equal(squareAt(799,799,800,'w'),'h1');
+ assert.equal(squareAt(1,1,800,'b'),'h1');assert.equal(squareAt(799,799,800,'b'),'a8');
+ assert.equal(squareAt(-1,20,800,'w'),null);assert.equal(squareAt(800,20,800,'w'),null);
+});
+await check('Castling works on both wings and cannot go through check or ignore lost rights',()=>{
+ for(const color of ['w','b'])for(const wing of ['c','g']){
+  const fen=`r3k2r/8/8/8/8/8/8/R3K2R ${color} KQkq - 0 1`,rank=color==='w'?'1':'8';
+  assert.equal(legalMove(fen,{from:'e'+rank,to:wing+rank}),true);
+ }
+ assert.equal(legalMove('4kr2/8/8/8/8/8/8/R3K2R w KQ - 0 1',{from:'e1',to:'g1'}),false);
+ assert.equal(legalMove('r3k2r/8/8/8/8/8/8/R3K2R w - - 0 1',{from:'e1',to:'c1'}),false);
+ let t=transition(createGame('one','two',10,0,0),'two','accept',{},1);let now=2;
+ const c=new Chess();for(const san of ['d4','d5','Nc3','Nc6','Bf4','Bf5','Qd2','Qd7','O-O-O','O-O-O']){const m=c.move(san);t=transition(t,m.color==='w'?'one':'two','move',{from:m.from,to:m.to},now++);}
+ assert.equal(replay(t).get('c1').type,'k');assert.equal(replay(t).get('d8').type,'r');
+});
+await check('Immediate move preview keeps server state immutable and moves the rook when castling',()=>{
+ const game={...createGame('one','two',5,0),status:'active',turnAt:1000};const shown=previewMove(game,'one',{from:'e2',to:'e4'},1500);
+ assert.equal(game.moves.length,0);assert.equal(shown.moves[0],'e4');assert.equal(shown.version,game.version);assert.equal(shown.whiteMs,299500);
+ const castle={...game,fen:'r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1'};const castled=previewMove(castle,'one',{from:'e1',to:'g1'},1500);
+ assert.equal(new Chess(castled.fen).get('f1').type,'r');assert.equal(castled.status,'active');
+});
+await check('Premoves wait for the opponent, revalidate legality, and cannot cross games',()=>{
+ let game=transition(createGame('one','two',5,0,0),'two','accept',{},1);
+ const queued={from:'e7',to:'e5',gameId:game.id};assert.equal(premoveReady(game,'two',queued),false);
+ game=transition(game,'one','move',{from:'e2',to:'e4'},2);assert.equal(premoveReady(game,'two',queued),true);
+ assert.equal(premoveReady(game,'two',{...queued,gameId:'old-game'}),false);
+ assert.equal(premoveReady(game,'two',{...queued,from:'e8',to:'e6'}),false);
+ assert.ok(premoveTargets(new Chess(),'g8','b').includes('f6'));
+ const promotion={...game,fen:'7k/8/8/8/8/8/p7/7K b - - 0 1'};
+ assert.equal(premoveReady(promotion,'two',{from:'a2',to:'a1',promotion:'n',gameId:game.id}),true);
+});
+await check('Late polling responses cannot rewind a live board',()=>{
+ const game=createGame('one','two',5,0);const old={me:'one',game:{...game,version:3},serverNow:100,players:[],stats:{},headToHead:{},recent:[]};
+ assert.equal(mergeRoom(old,{me:'one',game:{...game,version:2},serverNow:200}),old);
+ assert.equal(mergeRoom(old,{me:'one',game:{...game,version:4},serverNow:101}).game.version,4);
+ assert.equal(mergeRoom(old,{me:'two',game,serverNow:200}),old);
+});
+await check('Review normalizes engine scores to White and classifies errors for either side',()=>{
+ assert.equal(parseInfo('info depth 15 score cp 120 pv e7e5','b').cp,-120);
+ assert.equal(parseInfo('info depth 12 score mate -3 pv e7e5','b').mate,3);
+ assert.equal(parseInfo('info depth 12 score cp 50 lowerbound pv e2e4','w'),null);
+ const board=new Chess();const w=board.move('f3'),b=board.move('e5');const score=(cp,best)=>({cp,best,mate:null,pv:[best],depth:15});
+ assert.equal(classify(w,score(20,'e2e4'),score(-250,'e7e5')).quality,'Blunder');
+ assert.equal(classify(b,score(-20,'d7d5'),score(150,'e2e4')).quality,'Mistake');
+ assert.equal(classify(w,score(20,'f2f3'),score(10,'e7e5')).quality,'Best');
 });
 sql.close();console.log(`\n${passed} integration checks passed.`);

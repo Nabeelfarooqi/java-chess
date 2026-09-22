@@ -5,7 +5,7 @@ const participant = "(json_extract(state,'$.white')=? OR json_extract(state,'$.b
 const finished = "json_extract(state,'$.status')='finished'";
 const zero = (): Score => ({ wins: 0, losses: 0, draws: 0 });
 export class Store {
-    constructor(private db: D1Database) { }
+    constructor(private db: D1Database, private onChange: (game: Game) => void = () => {}) { }
     async get(id: string) {
         const r = await this.db.prepare('SELECT state,version FROM games WHERE id=?').bind(id).first<Row>();
         return r ? parse(r) : null;
@@ -17,6 +17,7 @@ export class Store {
         const r = await this.db.prepare('UPDATE games SET state=?,version=?,active_key=?,finished_at=? WHERE id=? AND version=?')
             .bind(JSON.stringify(saved), version, ['pending', 'active'].includes(saved.status) ? 1 : null, saved.finishedAt, saved.id, previous.version).run();
         if (!r.meta.changes) throw new GameError('The game changed. Your board has refreshed; try again.', 409);
+        this.onChange(saved);
         return saved;
     }
     async settle(g: Game) {
@@ -38,24 +39,25 @@ export class Store {
     }
     async room(me: PlayerId): Promise<Room> {
         const game = await this.current(me);
-        const roster = (await this.db.prepare('SELECT players.id,players.name,game_seats.player_id IS NOT NULL AS busy FROM players LEFT JOIN game_seats ON players.id=game_seats.player_id ORDER BY players.name,players.id').all<Player>()).results;
-        const players = roster.map(p => ({ ...p, busy: !!p.busy }));
-        const recent = (await this.db.prepare(`SELECT state,version FROM games WHERE ${participant} AND ${finished} ORDER BY finished_at DESC,rowid DESC LIMIT 20`).bind(me, me).all<Row>()).results.map(parse);
-        // Each result contributes to exactly its two participants, never every club member.
-        const totals = (await this.db.prepare(`WITH results AS (
-            SELECT json_extract(state,'$.white') AS white,json_extract(state,'$.black') AS black,json_extract(state,'$.winner') AS winner FROM games WHERE ${finished}
-        ), entries AS (
-            SELECT white AS player,winner FROM results UNION ALL SELECT black AS player,winner FROM results
-        ) SELECT player,SUM(winner=player) AS wins,SUM(winner IS NOT NULL AND winner<>player) AS losses,SUM(winner IS NULL) AS draws FROM entries GROUP BY player`).all<Score & { player: string }>()).results;
+        // One D1 round trip for the slower roster/history view; live moves skip this entirely.
+        const [roster, history, totals, pairs] = await this.db.batch([
+            this.db.prepare('SELECT players.id,players.name,game_seats.player_id IS NOT NULL AS busy FROM players LEFT JOIN game_seats ON players.id=game_seats.player_id ORDER BY players.name,players.id'),
+            this.db.prepare(`SELECT state,version FROM games WHERE ${participant} AND ${finished} ORDER BY finished_at DESC,rowid DESC LIMIT 20`).bind(me, me),
+            this.db.prepare(`WITH results AS (
+                SELECT json_extract(state,'$.white') AS white,json_extract(state,'$.black') AS black,json_extract(state,'$.winner') AS winner FROM games WHERE ${finished}
+            ), entries AS (SELECT white AS player,winner FROM results UNION ALL SELECT black AS player,winner FROM results)
+            SELECT player,SUM(winner=player) AS wins,SUM(winner IS NOT NULL AND winner<>player) AS losses,SUM(winner IS NULL) AS draws FROM entries GROUP BY player`),
+            this.db.prepare(`SELECT CASE WHEN json_extract(state,'$.white')=? THEN json_extract(state,'$.black') ELSE json_extract(state,'$.white') END AS rival,
+                SUM(json_extract(state,'$.winner')=?) AS wins,
+                SUM(json_extract(state,'$.winner') IS NOT NULL AND json_extract(state,'$.winner')<>?) AS losses,
+                SUM(json_extract(state,'$.winner') IS NULL) AS draws FROM games WHERE ${participant} AND ${finished} GROUP BY rival`).bind(me, me, me, me, me)
+        ]);
+        const players = (roster.results as Player[]).map(p => ({ ...p, busy: !!p.busy }));
+        const recent = (history.results as Row[]).map(parse);
         const stats: Record<string, Score> = Object.fromEntries(players.map(p => [p.id, zero()]));
-        for (const t of totals) stats[t.player] = { wins: t.wins || 0, losses: t.losses || 0, draws: t.draws || 0 };
-        const pairs = (await this.db.prepare(`SELECT CASE WHEN json_extract(state,'$.white')=? THEN json_extract(state,'$.black') ELSE json_extract(state,'$.white') END AS rival,
-            SUM(json_extract(state,'$.winner')=?) AS wins,
-            SUM(json_extract(state,'$.winner') IS NOT NULL AND json_extract(state,'$.winner')<>?) AS losses,
-            SUM(json_extract(state,'$.winner') IS NULL) AS draws FROM games WHERE ${participant} AND ${finished} GROUP BY rival`)
-            .bind(me, me, me, me, me).all<Score & { rival: string }>()).results;
+        for (const t of totals.results as (Score & { player: string })[]) stats[t.player] = { wins: t.wins || 0, losses: t.losses || 0, draws: t.draws || 0 };
         const headToHead: Record<string, Score> = Object.fromEntries(players.filter(p => p.id !== me).map(p => [p.id, zero()]));
-        for (const p of pairs) headToHead[p.rival] = { wins: p.wins || 0, losses: p.losses || 0, draws: p.draws || 0 };
+        for (const p of pairs.results as (Score & { rival: string })[]) headToHead[p.rival] = { wins: p.wins || 0, losses: p.losses || 0, draws: p.draws || 0 };
         return { me, players, game, recent, stats, headToHead, serverNow: Date.now() };
     }
     async create(me: PlayerId, rival: unknown, minutes: number, increment: number) {
@@ -77,6 +79,7 @@ export class Store {
             if (String(e).includes('UNIQUE')) throw new GameError('One of you just joined another challenge. Your board has refreshed.', 409);
             throw e;
         }
+        this.onChange(g);
         return g;
     }
     async act(me: PlayerId, action: string, body: Record<string, unknown>) {

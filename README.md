@@ -69,7 +69,7 @@ Maven is optional for command-line builds: `mvn test` runs the regression runner
 
 ## Limits and next steps
 
-This is a local practice game, not an online chess service. There are no accounts, matchmaking, ratings, chess clocks, network play, opening database, or external engine integration. Common dead-material positions are detected (bare kings, one minor piece, or bishops confined to one square color); arbitrary blocked-position dead draws are not fully solved. Players can agree a draw locally. FEN parsing supports test positions and save replay; it is not a general proof that an arbitrary position is reachable from a legal game.
+The Java desktop application is a local practice game; the separate online Rival Room companion is described below. There are no accounts, matchmaking, ratings, chess clocks, network play, opening database, or external engine integration. Common dead-material positions are detected (bare kings, one minor piece, or bishops confined to one square color); arbitrary blocked-position dead draws are not fully solved. Players can agree a draw locally. FEN parsing supports test positions and save replay; it is not a general proof that an arbitrary position is reachable from a legal game.
 
 Useful next additions: clock controls, a UCI/Stockfish adapter, a PGN importer, captured-piece trays, and a separate multiplayer service. Keep rule changes independent of UI code and add position-based regression tests for them.
 
@@ -99,6 +99,6 @@ The game uses only Java/Swing and bundled system fonts. The board and screenshot
 
 ## Private online chess: Rival Room
 
-The new [web companion](web/README.md) lets friends play timed chess through a link, with a personal PIN for each player, a rival picker, and individual and head-to-head wins/losses/draws. It deploys to your own Cloudflare account with Workers and D1. The desktop Java game above stays available in IntelliJ.
+The new [web companion](web/README.md) lets friends play timed chess through a link, with a personal PIN for each player, a rival picker, and individual and head-to-head wins/losses/draws. It includes mouse/touch dragging, castling, a queued premove, live updates, and Stockfish Game Review for finished games. It deploys to your own Cloudflare account with Workers, D1, and WebSocket Durable Objects. The desktop Java game above stays available in IntelliJ.
 
 See [web/README.md](web/README.md) for the one-time Cloudflare setup and deployment commands.

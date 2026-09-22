@@ -49,3 +49,6 @@ next-env.d.ts
 .dev.vars*
 cloudflare.local.json
 .test-build/
+
+# Prepared from pinned, integrity-checked upstream assets at build time
+/public/engine/

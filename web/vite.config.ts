@@ -65,7 +65,12 @@ export default defineConfig(async () => {
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         inspectorPort: false,
-        config: cloudflareConfig || localBindingConfig,
+        config: {
+          ...(cloudflareConfig || localBindingConfig),
+          main: "./worker.ts",
+          durable_objects: { bindings: [{ name: "LIVE_PLAYERS", class_name: "PlayerLive" }] },
+          migrations: [{ tag: "player-live-v1", new_sqlite_classes: ["PlayerLive"] }],
+        },
       }),
     ],
   };
