@@ -14,6 +14,8 @@ import { Entry } from './entry';
 import { opponent, pgn, replay, type Game, type PlayerId, type Room } from '@/lib/game';
 import { ChessBoard } from './chess-board';
 import { PlayerClock } from './player-clock';
+import { CapturedMaterial } from './captured-material';
+import { materialSummary } from '@/lib/material';
 import { useRoom } from './use-room';
 import { getCharacter } from '@/lib/characters';
 import { BoardPiece, CharacterPortrait } from './character-art';
@@ -65,8 +67,10 @@ export function Club({ room, busy, online, offset, act, run }: {
     const orientation = (myColor === 'b') !== flip ? 'b' : 'w';
     const myTurn = g?.status === 'active' && board.turn() === myColor;
     const active = g?.status === 'active';
-    const lastMove = useMemo(() => { if (!g?.moves.length)
-        return null; return replay(g).history({ verbose: true }).at(-1) || null; }, [g?.moves.length, g?.id]);
+    const { lastMove, material } = useMemo(() => {
+        const position = g ? replay(g) : new Chess();
+        return { lastMove: position.history({ verbose: true }).at(-1) || null, material: materialSummary(position) };
+    }, [g?.moves.length, g?.id, g?.fen]);
     useEffect(() => { cancelPremove(); setPromotion(null); setOptimistic(null); }, [serverGame?.id, me, cancelPremove]);
     useEffect(() => { if (!online || serverGame?.status !== 'active') { cancelPremove(); setPromotion(null); } }, [online, serverGame?.status, cancelPremove]);
     const submit = useCallback((move: BoardMove) => {
@@ -147,6 +151,7 @@ export function Club({ room, busy, online, offset, act, run }: {
         return <div className="player-row character-player" data-color={color} data-character={characterOf(id) || 'guest'}>
             <CharacterPortrait character={characterOf(id)} name={who(id)}/><div className="player-info"><strong>{who(id)} {id === me && <small>YOU</small>}</strong><span><i className={`seat-color ${color}`}/>{color === 'w' ? 'White' : 'Black'}</span></div>
             <PlayerClock game={g} color={color} offset={offset} minutes={Number(minutes)}/>
+            <CapturedMaterial color={color} name={who(id)} material={material}/>
         </div>;
     }
     let status = !g ? 'The board is yours.' : g.status === 'pending' ? (g.challenger === me ? 'Challenge sent.' : 'You’ve been challenged.') : g.status === 'active' ? (myTurn ? (board.isCheck() ? 'You’re in check.' : 'Your move.') : `${who(rival)}’s move.`) : g.status === 'finished' ? (g.winner === me ? 'Bragging rights: yours.' : g.winner ? 'They got this one.' : 'Evenly matched.') : 'Ready for the next one?';

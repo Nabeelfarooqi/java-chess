@@ -161,6 +161,8 @@ The Walan/Gud JPEG drawings are stored unchanged in `public/characters/`. Saif�
 - A premove is rechecked when your turn arrives. If it is illegal, the game ends, the connection fails, or you change games, it is cancelled. The tab must remain open for the queue to run. It uses normal server clock timing; zero-time premoves and network lag compensation are not implemented.
 - **Flip board** changes your view without changing identity, color, or turn. Your PIN continues to identify your own name and scores.
 
+Captured pieces appear beneath the player who took them, grouped by piece type with repeat counts. A `+N` badge shows only the leading player’s net material advantage (pawn 1, knight/bishop 3, rook 5, queen 9). The score uses the current board, so exchanges, en passant, and promotions are counted correctly. The display follows player colors through board flips and survives refreshes from saved game history.
+
 On phones, active games use compact player/clock rows, a board sized to the available viewport, and a short turn/control bar. Tap the question-mark button for castling and premove instructions. A queued premove retains its visible Cancel button. Draw/resign controls appear above the move list, and safe-area padding accommodates iPhone screen cutouts. Pinch zoom remains enabled.
 
 Piece artwork: Colin M. L. Burnett’s cburnett set from Lichess, distributed unchanged under GPL-2.0-or-later. Attribution, source, and the license accompany the SVGs in `public/pieces/`.

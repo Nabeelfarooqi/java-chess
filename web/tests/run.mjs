@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import {newPlayer} from '../scripts/player-pin.mjs';
 import {pinUpdate} from '../scripts/set-pin.mjs';
 const build=new URL('../.test-build/',import.meta.url);mkdirSync(build,{recursive:true});
-const files=['lib/server/imessage.ts','lib/characters.ts','lib/board.ts','lib/room-update.ts','lib/review.ts','lib/game.ts','lib/server/auth.ts','lib/server/store.ts','lib/server/live.ts','lib/server/api.ts','app/api/room/route.ts'];
+const files=['lib/material.ts','lib/server/imessage.ts','lib/characters.ts','lib/board.ts','lib/room-update.ts','lib/review.ts','lib/game.ts','lib/server/auth.ts','lib/server/store.ts','lib/server/live.ts','lib/server/api.ts','app/api/room/route.ts'];
 for(const file of files){let source=readFileSync(new URL('../'+file,import.meta.url),'utf8');
  if(file==='app/api/room/route.ts')source=source.replace("'cloudflare:workers'","'../../../env.cjs'").replaceAll("'@/lib/","'../../../lib/");
  source=source.replace(/from '(\.{1,2}\/[^']+)'/g,(_,path)=>`from '${path.endsWith('.cjs')?path:path+'.cjs'}'`);
@@ -190,6 +190,24 @@ await check('PIN-linked characters stay with Walan, Gud, and Saif across renames
  assert.equal(getCharacter(usman.id),null);assert.equal(getCharacter('two'),null);assert.equal(getCharacter(undefined),null);
 });
 const {Chess}=require('chess.js');
+const {materialSummary}=require(new URL('lib/material.cjs',build).pathname);
+await check('Capture rows belong to the capturer and net material handles trades, en passant, and promotions',()=>{
+ const start=materialSummary(new Chess());assert.deepEqual(start.lead,{w:0,b:0});assert.equal(Object.values(start.captures.w).reduce((a,b)=>a+b,0),0);
+ const queen=new Chess('r3k3/8/8/8/8/8/q7/R2QK3 w - - 0 1');queen.move('Rxa2');
+ assert.equal(materialSummary(queen).captures.w.q,1);assert.deepEqual(materialSummary(queen).lead,{w:9,b:0});
+ queen.move('Rxa2');assert.equal(materialSummary(queen).captures.b.r,1);assert.deepEqual(materialSummary(queen).lead,{w:4,b:0});
+ const trade=new Chess();for(const m of ['e4','d5','exd5','Qxd5'])trade.move(m);
+ assert.equal(materialSummary(trade).captures.w.p,1);assert.equal(materialSummary(trade).captures.b.p,1);assert.deepEqual(materialSummary(trade).lead,{w:0,b:0});
+ const ep=new Chess();for(const m of ['e4','a6','e5','d5','exd6'])ep.move(m);
+ assert.equal(materialSummary(ep).captures.w.p,1);assert.deepEqual(materialSummary(ep).lead,{w:1,b:0});
+ for(const promotion of ['q','n']){
+  const chess=new Chess('7k/P7/8/8/8/8/8/7K w - - 0 1');chess.move({from:'a7',to:'a8',promotion});
+  const result=materialSummary(chess);assert.equal(result.lead.w,promotion==='q'?9:3);assert.equal(result.captures.w.p,0);
+ }
+ const promotedCapture=new Chess('r6k/1P6/8/8/8/8/8/7K w - - 0 1');promotedCapture.move('bxa8=Q+');
+ assert.equal(materialSummary(promotedCapture).captures.w.r,1);assert.equal(materialSummary(promotedCapture).lead.w,9);
+ promotedCapture.undo();assert.deepEqual(materialSummary(promotedCapture).lead,{w:0,b:4});assert.equal(materialSummary(promotedCapture).captures.w.r,0);
+});
 const {squareAt,legalMove,previewMove,premoveReady,premoveTargets,boardTargets,boardMove}=require(new URL('lib/board.cjs',build).pathname);
 const {mergeRoom}=require(new URL('lib/room-update.cjs',build).pathname);
 const {parseInfo,classify}=require(new URL('lib/review.cjs',build).pathname);
