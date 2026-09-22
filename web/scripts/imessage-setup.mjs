@@ -2,21 +2,28 @@ import { mkdirSync, existsSync, readFileSync, chmodSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
 import { BlueBubbles, localBlueBubblesUrl } from './bluebubbles-client.mjs';
-import { chatKind, chatSummary } from './imessage-chat-list.mjs';
+import { chatKind, chatSummary, chatLabel, filterChats } from './imessage-chat-list.mjs';
 import { privateJson, siteOrigin, cloudBridge } from './imessage-core.mjs';
 import { question, hidden } from './terminal-input.mjs';
 import { query, wrangler } from './cloudflare-admin.mjs';
 const directory = resolve('.imessage'), path = resolve(directory, 'config.json');
-function chatLabel(chat) { return [chat.displayName || 'Unnamed chat', ...(chat.participants || []).map(p => p.address)].join(' · '); }
 async function choose(chats, label, optional = false) {
-  console.log('\n'+label); chats.forEach((chat, index) => console.log(`${index+1}. ${chatLabel(chat)}`));
+  console.log('\n'+label);
   if (!chats.length) throw new Error('BlueBubbles supplied no selectable chats for this destination. Run npm run imessage:chats to check what the API can see. Existing Messages chats do not need to be recreated. Nothing saved.');
   while (true) {
-    const choice = await question(optional ? 'Chat number (Enter to skip): ' : 'Chat number: ');
-    if (!choice && optional) return null;
-    const index = Number(choice) - 1;
-    if (Number.isInteger(index) && index >= 0 && index < chats.length) return chats[index];
-    console.log('Choose a listed chat number.');
+    const search = await question('Search chat name or phone/email (Enter lists all'+(optional ? ', SKIP skips this player' : '')+'): ');
+    if (optional && search.toUpperCase() === 'SKIP') return null;
+    const matches = filterChats(chats, search);
+    if (!matches.length) { console.log('No matches. Direct chats may have no contact name; try their phone number/email from Contacts.'); continue; }
+    matches.forEach((chat, index) => console.log(`${index+1}. ${chatLabel(chat)}`));
+    while (true) {
+      const choice = await question(optional ? 'Chat number (Enter to skip, / to search again): ' : 'Chat number (/ to search again): ');
+      if (!choice && optional) return null;
+      if (choice === '/') break;
+      const index = Number(choice) - 1;
+      if (Number.isInteger(index) && index >= 0 && index < matches.length) return matches[index];
+      console.log('Choose a listed chat number.');
+    }
   }
 }
 try {
@@ -31,6 +38,7 @@ try {
   const chats = await bb.chats();
   console.log(chatSummary(chats));
   console.log('Direct chats may appear as phone numbers or emails rather than Contacts names. Check the participant address before choosing.');
+  console.log('Messages auto chats use the existing conversation\'s service. Choose your blue-bubble conversations and verify group members; duplicate names have separate Chat IDs.');
   const players = query('SELECT id,name,character FROM players ORDER BY name');
   const targets = {}, labels = [];
   for (const player of players) {

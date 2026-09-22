@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { BlueBubbles, localBlueBubblesUrl } from '../scripts/bluebubbles-client.mjs';
-import { chatKind, chatCounts, chatDiagnostics } from '../scripts/imessage-chat-list.mjs';
+import { chatKind, chatCounts, chatDiagnostics, chatLabel, filterChats } from '../scripts/imessage-chat-list.mjs';
 import { Journal, deliver, privateJson } from '../scripts/imessage-core.mjs';
 import { winnerCard } from '../scripts/winner-card.mjs';
 import { findPlayer } from '../scripts/cloudflare-admin.mjs';
@@ -24,19 +24,51 @@ try {
   const chats=await bb.chats();
   assert.deepEqual(calls.map(c=>c.path),['/api/v1/chat/query','/api/v1/chat/query']);
   assert.deepEqual(calls.map(c=>c.body.offset),[0,100]);
-  assert.deepEqual(chatCounts(chats),{total:103,direct:1,group:1,unsupported:101});
-  assert.deepEqual(chats.filter(c=>chatKind(c)==='direct').map(c=>c.guid),['iMessage;-;usman@example.test']);
+  assert.deepEqual(chatCounts(chats),{total:103,direct:2,group:1,unsupported:100});
+  assert.deepEqual(chats.filter(c=>chatKind(c)==='direct').map(c=>c.guid),['iMessage;-;usman@example.test','any;-;private-address']);
   assert.deepEqual(chats.filter(c=>chatKind(c)==='group').map(c=>c.displayName),['FRQ']);
  });
  await check('Chat diagnostics distinguish empty API results from filtered chats without disclosing addresses or message bodies',()=>{
   const chats=[{guid:'iMessage;-;usman@example.test',style:45,participants:[{address:'usman@example.test'}],lastMessage:{text:'private-message'}},{guid:'iMessage;+;private-group-id',displayName:'FRQ',style:43,participants:[{},{}]},{guid:'any;-;private-address'},{guid:'private-unknown-address'},null];
   const report=chatDiagnostics(chats);
-  assert.match(report,/5 chats: 1 direct iMessage, 1 iMessage groups, 3 unsupported/);
+  assert.match(report,/5 chats: 2 selectable direct chats, 1 selectable groups, 2 unsupported/);
   assert.match(report,/FRQ \| group \| participants: 2 \| style: 43/);
   assert.match(report,/any;-;\[hidden\]: 1/);
   for(const secret of ['usman@example.test','private-message','private-group-id','private-address','private-unknown-address']) assert.ok(!report.includes(secret));
   assert.match(chatDiagnostics([]),/API returned an empty list/);
   assert.equal(chatKind(null),'unsupported');assert.equal(chatKind({guid:12}),'unsupported');
+ });
+ await check('The reported 402 any direct chats and 52 any groups are selectable without confusing groups and DMs',()=>{
+  const directs=Array.from({length:402},(_,i)=>({guid:`any;-;contact-${i}`,style:45,participants:[{}]}));
+  const groups=Array.from({length:52},(_,i)=>({guid:`any;+;group-${i}`,style:43,participants:Array(10).fill({})}));
+  assert.deepEqual(chatCounts([...directs,...groups]),{total:454,direct:402,group:52,unsupported:0});
+  assert.equal(chatKind({guid:'any;+;group',style:43,participants:[{}]}),'group');
+  for(const chat of [{guid:'any;-;address',style:43},{guid:'any;+;group',style:45},{guid:'any;-;address',participants:[{},{}]},{guid:'SMS;-;address'},{guid:'RCS;+;group'},{guid:'any;-;'},{guid:'any;?;address'},{guid:'any;-;address;extra'},{guid:'any;-;address\n'}]) assert.equal(chatKind(chat),'unsupported');
+ });
+ await check('Search finds unnamed phone conversations and keeps duplicate FRQ chats distinct for confirmation',()=>{
+  const chats=[{guid:'any;-;+15550000111',style:45,participants:[{address:'+1 (555) 000-0111'}]}, {guid:'any;+;first-group',displayName:'FRQ',originalROWID:12,participants:[{address:'one@example.test'},{address:'two@example.test'}]}, {guid:'any;+;second-group',displayName:'FRQ',originalROWID:34,participants:[{address:'one@example.test'},{address:'two@example.test'}]}];
+  assert.deepEqual(filterChats(chats,'(555) 000-0111'),[chats[0]]);
+  assert.deepEqual(filterChats(chats,'frq'),chats.slice(1));
+  assert.deepEqual(filterChats(chats,'Usman'),[]);
+  assert.deepEqual(filterChats(chats,''),chats);
+  assert.notEqual(chatLabel(chats[1]),chatLabel(chats[2]));
+  assert.match(chatLabel(chats[1]),/Chat ID 12/);assert.match(chatLabel(chats[2]),/Chat ID 34/);
+ });
+ await check('Native any chat IDs survive delivery unchanged; challenge/group type mismatches and explicit SMS stay blocked',async()=>{
+  const auto={...config,targets:{gud:'any;-;usman@example.test'},groupChatGuid:'any;+;frq-exact-guid'};
+  const calls=[],journal=new Journal(directory,config.site);
+  const bb=new BlueBubbles('http://127.0.0.1:1234','test-only',async(url,options)=>{calls.push(JSON.parse(options.body));return Response.json({status:200,data:{guid:'sent'}})});
+  const options={bb,post:async()=>{},journal};
+  const challenge={...job,id:'auto-challenge',kind:'challenge',recipientId:'gud'};
+  assert.equal(await deliver(challenge,auto,options),'sent');
+  assert.equal(await deliver({...job,id:'auto-result'},auto,options),'sent');
+  assert.deepEqual(calls.map(c=>c.chatGuid),['any;-;usman@example.test','any;+;frq-exact-guid']);
+  assert.ok(calls.every(c=>c.method==='apple-script'));
+  assert.equal(await deliver({...challenge,id:'auto-wrong-dm'},{...auto,targets:{gud:auto.groupChatGuid}},options),'needs_review');
+  assert.equal(await deliver({...job,id:'auto-wrong-group'},{...auto,groupChatGuid:auto.targets.gud},options),'needs_review');
+  assert.equal(await deliver({...challenge,id:'sms-dm'},{...auto,targets:{gud:'SMS;-;usman'}},options),'needs_review');
+  assert.equal(calls.length,2);
+  assert.equal(journal.get('auto-result').chatGuid,'any;+;frq-exact-guid');
  });
  await check('BlueBubbles uses documented local AppleScript text and multipart PNG endpoints',async()=>{
   const calls=[];const bb=new BlueBubbles('http://127.0.0.1:1234','test-password',async(url,options)=>{calls.push({url,options});return Response.json({status:200,data:{guid:'accepted'}})});

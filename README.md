@@ -105,6 +105,8 @@ Choose an easier six-digit PIN for any player with `cloudflare:set-pin`, preserv
 
 If Messages shows those chats but setup cannot find them, run `npm run imessage:chats` from `web/` on your Mac. This read-only diagnostic distinguishes an empty BlueBubbles response from unsupported chat formats, without sending messages or changing your saved destinations. See [chat troubleshooting](web/IMESSAGE_SETUP.md#chats-exist-in-messages-but-setup-cannot-find-them).
 
+The setup wizard and sender also support the native `any` chat identifiers returned by Mac Messages, preserving the chosen conversation instead of rewriting its ID. Search by name or phone/email, verify the participants, and choose the exact chat number; duplicate FRQ groups are kept separate. Updating this Mac helper does not require redeploying Cloudflare.
+
 See [web/README.md](web/README.md) for Cloudflare setup, deployment, PIN management, and verification commands.
 
 Group results rotate through owner-approved win jokes and separate draw phrases for every pairing, while keeping the winner and head-to-head record accurate. Phrase selection stays consistent when a notification is retried.

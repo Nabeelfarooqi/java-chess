@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { chatKind } from './imessage-chat-list.mjs';
 export function siteOrigin(value) {
   const url = new URL(value);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('Use your HTTPS chess site address without a path or query.');
@@ -30,7 +31,7 @@ export async function deliver(job, config, { bb, post, journal }) {
   const ack = (status, detail = '') => post({ action: 'ack', id: job.id, leaseToken: job.leaseToken, status, detail });
   const chatGuid = job.kind === 'result' ? config.groupChatGuid : config.targets[job.recipientId];
   if (!chatGuid) { await ack('skipped', 'No destination configured for this player'); return 'skipped'; }
-  if (!chatGuid.startsWith(job.kind === 'result' ? 'iMessage;+;' : 'iMessage;-;')) { await ack('needs_review', 'Destination must be an existing iMessage group or direct chat'); return 'needs_review'; }
+  if (chatKind({ guid: chatGuid }) !== (job.kind === 'result' ? 'group' : 'direct')) { await ack('needs_review', 'Destination must be an existing iMessage or Messages auto chat of the correct type'); return 'needs_review'; }
   const previous = journal.get(job.id);
   const state = previous || { chatGuid, parts: {} };
   if ((job.attempts > 1 && !previous) || state.chatGuid !== chatGuid || state.parts.text?.status === 'sending') {

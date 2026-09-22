@@ -1,12 +1,34 @@
-// Only explicitly identified iMessage destinations are selectable. Diagnostic
-// output retains other services, but never turns one into an iMessage target.
+// Recent Messages databases use `any` for native, automatically routed chats.
+// Keep the exact GUID: rewriting it to `iMessage` can point at a different chat.
 export function chatKind(chat) {
   if (typeof chat?.guid !== 'string') return 'unsupported';
-  if (chat.guid.startsWith('iMessage;-;')) return 'direct';
-  if (chat.guid.startsWith('iMessage;+;')) return 'group';
-  return 'unsupported';
+  const match = /^(?:iMessage|any);([-+]);([^;\u0000-\u001f\u007f]+)$/.exec(chat.guid);
+  if (!match) return 'unsupported';
+  const kind = match[1] === '-' ? 'direct' : 'group';
+  // Do not offer a group as a private destination if metadata conflicts.
+  if (chat.style != null && chat.style !== (kind === 'direct' ? 45 : 43)) return 'unsupported';
+  if (kind === 'direct' && Array.isArray(chat.participants) && chat.participants.length > 1) return 'unsupported';
+  return kind;
 }
 const clean = value => String(value ?? '').replace(/[\u0000-\u001f\u007f-\u009f]/g, '').slice(0, 100);
+export function chatLabel(chat) {
+  const addresses = (chat.participants || []).map(p => clean(p.address)).filter(Boolean);
+  if (!addresses.length && chatKind(chat) === 'direct') addresses.push(clean(chat.guid.split(';')[2]));
+  const route = chat.guid.startsWith('any;') ? 'Messages auto' : 'iMessage';
+  const id = clean(chat.originalROWID ?? chat.guid.split(';')[2]);
+  return [clean(chat.displayName) || 'Unnamed chat', ...addresses, `${route} · Chat ID ${id}`].join(' · ');
+}
+export function filterChats(chats, search) {
+  const term = search.trim().toLowerCase();
+  if (!term) return chats;
+  const phone = /^[+\d\s().-]+$/.test(term) ? term.replace(/\D/g, '') : '';
+  return chats.filter(chat => {
+    const addresses = (chat.participants || []).map(p => String(p.address || ''));
+    if (chatKind(chat) === 'direct') addresses.push(chat.guid.split(';')[2]);
+    return [chat.displayName || '', ...addresses].some(value => String(value).toLowerCase().includes(term))
+      || (phone.length >= 4 && addresses.some(address => /^[+\d\s().-]+$/.test(address) && address.replace(/\D/g, '').includes(phone)));
+  });
+}
 export function chatCounts(chats) {
   return {
     total: chats.length,
@@ -17,7 +39,7 @@ export function chatCounts(chats) {
 }
 export function chatSummary(chats) {
   const count = chatCounts(chats);
-  return `BlueBubbles returned ${count.total} chats: ${count.direct} direct iMessage, ${count.group} iMessage groups, ${count.unsupported} unsupported/unrecognized.`;
+  return `BlueBubbles returned ${count.total} chats: ${count.direct} selectable direct chats, ${count.group} selectable groups, ${count.unsupported} unsupported/unrecognized. Supported formats: iMessage and Messages auto (any).`;
 }
 export function chatDiagnostics(chats) {
   const lines = [chatSummary(chats)];
