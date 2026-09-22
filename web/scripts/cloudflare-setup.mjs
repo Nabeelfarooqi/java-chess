@@ -38,7 +38,7 @@ if(mode==='pins'){
  run(['secret','bulk','--config',config],JSON.stringify({PIN_ONE_HASH:hash(pinOne),PIN_TWO_HASH:hash(pinTwo)}));
  run(['d1','execute','DB','--remote','--config',config,'--command','DELETE FROM sessions']);
  console.log('\nSave these two personal access codes in a password manager. They are not saved to a file or GitHub.');
- console.log('Your code (Nabeel): '+pinOne);console.log('Your friend’s code (Saif): '+pinTwo);
+ console.log('Your code (Walan): '+pinOne);console.log('Your friend’s code (Gud): '+pinTwo);
  console.log('Share only your friend’s code with them. Rerunning this command replaces both codes and locks existing sessions.');
 }
 

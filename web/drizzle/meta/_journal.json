@@ -15,6 +15,13 @@
       "when": 1790031833858,
       "tag": "0001_multiple_rivals",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790036342899,
+      "tag": "0002_character_names",
+      "breakpoints": true
     }
   ]
 }

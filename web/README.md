@@ -13,6 +13,7 @@ A private chess club that accompanies the Java desktop game. Open the same link,
 - Games and clocks survive refreshes. Closing the browser does not stop the clock.
 - Saved wins, losses, draws, recent history, individual PGN downloads and a full JSON backup.
 - Choose from the club roster; each person can have one active game or challenge at a time. Different pairs can play simultaneously.
+- PIN-linked characters: Walan’s green room and Gud’s red room, with their supplied portraits, themed board halves, and character kings. Other rivals keep their own names and neutral artwork.
 - Personal display names. One PIN belongs to each player; do not share your own PIN.
 
 Group-chat messages are not connected yet. Nothing sends a message to anyone.
@@ -64,7 +65,7 @@ The deploy script refuses a placeholder database ID. PIN hashes are runtime secr
 
 ## Add Usman or another rival
 
-For an existing deployment, pull the latest code and run `npm run cloudflare:deploy` first. The migration preserves Nabeel and Saif’s player IDs, PINs, names, sessions, games and scores. It also carries over a game already in progress.
+For an existing deployment, pull the latest code and run `npm run cloudflare:deploy` first. The migrations preserve player IDs, PINs, sessions, games and scores, including a game already in progress. The original Nabeel and Saif profiles are now named Walan and Gud respectively.
 
 Then run this in your Mac terminal:
 
@@ -78,11 +79,21 @@ The command creates Usman’s profile and prints his personal **12-digit PIN onc
 npm run cloudflare:add-player -- "Another Friend"
 ```
 
-Adding someone does not change anyone else’s code or scores. Existing Nabeel/Saif codes remain eight digits. New players receive twelve-digit codes, which cannot collide with the original codes. The server uses a randomly salted PBKDF2 derivation with an indexed hash lookup; plaintext PINs are not stored. Only someone with your Cloudflare account access can use this terminal command. A duplicate name is rejected, rather than silently replacing an existing identity. A player can change their display name in settings without changing their PIN or records.
+Adding someone does not change anyone else’s code or scores. Existing Walan/Gud codes remain eight digits. New players receive twelve-digit codes, which cannot collide with the original codes. The server uses a randomly salted PBKDF2 derivation with an indexed hash lookup; plaintext PINs are not stored. Only someone with your Cloudflare account access can use this terminal command. A duplicate name is rejected, rather than silently replacing an existing identity. A player can change their display name in settings without changing their PIN or records.
 
-**Do not use `cloudflare:pins` to add a friend.** That older command rotates Nabeel and Saif’s original PINs and revokes all sessions; it does not add players or erase scores. New-player codes cannot be recovered from storage, so save them when displayed.
+**Do not use `cloudflare:pins` to add a friend.** That older command rotates Walan and Gud’s original PINs and revokes all sessions; it does not add players or erase scores. New-player codes cannot be recovered from storage, so save them when displayed.
 
 Database triggers reserve one seat per player atomically and release it with a finished/cancelled game. These triggers are part of `drizzle/0001_multiple_rivals.sql`; preserve them when editing future schema migrations.
+
+## Walan and Gud characters
+
+The original **Nabeel PIN identifies Walan** (player ID `one`), and the original **Saif PIN identifies Gud** (player ID `two`). Signing in selects your room theme, portrait, and “You are” name. The other player’s portrait appears beside their clock. The board’s four home ranks use their owner’s green or red palette, and each character’s face appears on their king with a small king symbol showing the chess color. Other pieces keep recognizable chess shapes with matching accents.
+
+Character ownership follows the authenticated player ID and each game’s white/black assignments. Rematches, flipping the board, dragging, premoves, and Game Review retain the correct character. Usman and future rivals use their existing display names, initials, and standard pieces. A profile rename changes the visible name without transferring its character or scores.
+
+**Existing installations:** deploy normally. The one-time `0002_character_names.sql` migration renames only the two original profiles; it does not regenerate PINs, replace IDs, alter games, or reset records. Refresh an already-open tab after deployment. Do **not** run `cloudflare:pins` for this update.
+
+The supplied JPEG drawings are stored unchanged in `public/characters/`. CSS frames them as portraits; they are ordinary public site assets. `lib/characters.ts` maps stable IDs to artwork, while `app/characters.css` defines the palettes and portrait framing.
 
 ## Board controls and premoves
 
@@ -129,7 +140,7 @@ npm run typecheck
 npm run build
 ```
 
-Tests use disposable local SQLite databases and the local Workers/Miniflare runtime bundled with Wrangler. They verify access control, CSRF protection, rate limiting, multiple PIN identities, participant authorization, independent pair scores, safe upgrades of existing records, legal moves, special moves, checkmate, draws, clock expiry, concurrent writes, session revocation, persistence after reopening the database, castling on both sides for both colors, premove legality, stale response handling, review classification, and authenticated WebSocket delivery/revocation. They do not contact your Cloudflare account.
+Tests use disposable local SQLite databases and the local Workers/Miniflare runtime bundled with Wrangler. They verify access control, CSRF protection, rate limiting, multiple PIN identities, participant authorization, independent pair scores, safe upgrades and character renaming of existing records, character ownership across color swaps, legal moves, special moves, checkmate, draws, clock expiry, concurrent writes, session revocation, persistence after reopening the database, castling on both sides for both colors, premove legality, stale response handling, review classification, and authenticated WebSocket delivery/revocation. They do not contact your Cloudflare account.
 
 The app uses React, TypeScript, Vinext, chess.js, Cloudflare D1, WebSocket Durable Objects, and a separately loaded Stockfish browser worker. The original Java Swing game remains in the repository root and opens normally in IntelliJ.
 
@@ -142,6 +153,7 @@ The app uses React, TypeScript, Vinext, chess.js, Cloudflare D1, WebSocket Durab
 | `lib/server/player-live.ts`, `live.ts` | Per-player notification hubs and post-commit broadcasts. |
 | `app/use-room.ts`, `lib/room-update.ts` | Fetching, reconnects, fallback polling, and stale-version protection. |
 | `app/chess-board.tsx`, `lib/board.ts` | Mouse/touch input, legal previews, castling input, and premoves. |
+| `lib/characters.ts`, `app/character-art.tsx`, `app/characters.css` | PIN-identity artwork, character kings, board camps, and room palettes. |
 | `app/player-clock.tsx` | Clock updates isolated from board rendering. |
 | `app/game-review.tsx`, `lib/review*.ts` | Review UI, browser engine protocol, and move-label heuristics. |
 | `scripts/prepare-engine.mjs` | Pinned engine assets, integrity checks, and license/source attribution. |

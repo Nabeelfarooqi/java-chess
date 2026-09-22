@@ -1,0 +1,103 @@
+/* The room follows the authenticated identity; the board follows each color's owner. */
+html[data-character="walan"] {
+    --background: #111b16; --foreground: #f3f6eb; --card: #1b2a21;
+    --popover: #1b2a21; --popover-foreground: #f3f6eb;
+    --primary: #a9ec88; --primary-foreground: #172a17;
+    --secondary: #283c2e; --muted: #283c2e; --muted-foreground: #b6cbb9;
+    --accent: #334e38; --border: #415b46; --input: #58735d; --ring: #a9ec88;
+}
+html[data-character="gud"] {
+    --background: #1c1418; --foreground: #fff0eb; --card: #2a1d23;
+    --card-foreground: #fff0eb; --popover: #2a1d23; --popover-foreground: #fff0eb;
+    --primary: #ffac99; --primary-foreground: #391711;
+    --secondary: #3a282f; --secondary-foreground: #fff0eb;
+    --muted: #3a282f; --muted-foreground: #d1b7bf;
+    --accent: #513039; --accent-foreground: #fff0eb;
+    --border: #65444e; --input: #815761; --ring: #ffac99;
+}
+.character-portrait {
+    position: relative; display: inline-grid; place-items: center; overflow: hidden;
+    width: 58px; height: 64px; flex: 0 0 auto; border-radius: 14px;
+    background: #fff; border: 2px solid #d1dacb; color: #293d2d;
+    isolation: isolate; pointer-events: none; font-size: 26px; font-weight: 800;
+}
+/* Frame the original supplied JPEGs in the interface; the files are unmodified. */
+.character-portrait > img {
+    position: absolute; width: 380%; max-width: none; height: auto;
+    left: 50%; top: 50%; transform: translate(-48%, -41%);
+    pointer-events: none; user-select: none;
+}
+.character-portrait[data-character="walan"] { border-color: #94d68d; }
+.character-portrait[data-character="gud"] { border-color: #ed9289; }
+.club-identity { display: flex; gap: 14px; align-items: center; }
+.club-identity > div { min-width: 0; }
+.identity-portrait { width: 64px; height: 70px; transform: rotate(-4deg); }
+.signed-in-player { font-size: 14px; margin-top: 9px; }
+.signed-in-player strong { font-size: 22px; font-weight: 800; }
+.club .brand-mark { display: none; }
+.club .brand { font-size: 12px; letter-spacing: .13em; }
+.club .private-badge { font-size: 10px; }
+.character-player {
+    --team-bright: #d7dfd0; --team-surface: #28352b; --team-edge: #647266;
+    gap: 13px; padding: 10px 13px; margin-bottom: 10px;
+    border: 1px solid var(--team-edge); border-left-width: 4px;
+    background: var(--team-surface); border-radius: 12px;
+}
+.character-player[data-character="walan"] { --team-bright: #b4f1a4; --team-surface: #203a29; --team-edge: #6b9d6d; }
+.character-player[data-character="gud"] { --team-bright: #ffc2b4; --team-surface: #41262a; --team-edge: #b47170; }
+.board-frame + .character-player { padding: 10px 13px; margin: 10px 0 0; }
+.character-player .player-info strong { font-size: 17px; color: #fff4e9; }
+.character-player .player-info > span { font-size: 12px; color: #ded9cf; }
+.character-player .player-info small { color: #fff; background: #ffffff20; font-size: 10px; }
+.character-player .clock { background: #0002; border-color: var(--team-edge); color: var(--team-bright); }
+.character-player .clock.ticking { background: var(--team-bright); color: #201d1a; border-color: var(--team-bright); }
+.character-player .clock.urgent { background: #ffd476; border-color: #ffd476; color: #372005; }
+.rival-option > .character-portrait { width: 38px; height: 43px; border-radius: 9px; display: inline-grid; }
+.rival-option { gap: 9px; }
+.rival-option > span:last-child { flex: 1; }
+.board-frame { background: var(--card); border-color: var(--border); }
+.square[data-camp="walan"].light { background: #d7e7c9; }
+.square[data-camp="walan"].dark { background: #729769; }
+.square[data-camp="gud"].light { background: #efd8cc; }
+.square[data-camp="gud"].dark { background: #b27472; }
+.square.selected { background: #e7d16b !important; }
+.square.premove-square { background: #7187b5 !important; }
+.square.premove-square.selected { background: #93a4c7 !important; }
+.square.in-check { box-shadow: inset 0 0 0 4px #ce2032, inset 0 0 28px 10px #ce203288; }
+.piece[data-character="walan"].white-piece { color: #f2ffe4; -webkit-text-stroke-color: #214b32; }
+.piece[data-character="walan"].black-piece { color: #1b472e; -webkit-text-stroke-color: #e3ffd2; }
+.piece[data-character="gud"].white-piece { color: #fff0e8; -webkit-text-stroke-color: #743e3d; }
+.piece[data-character="gud"].black-piece { color: #612c36; -webkit-text-stroke-color: #ffe4ce; }
+.character-king { position: relative; display: grid; place-items: center; width: 81%; height: 86%; -webkit-text-stroke: 0; filter: drop-shadow(0 2px 1px #0006); }
+.character-king .king-face { width: 87%; height: 81%; border-radius: 35%; border-width: 2px; }
+.king-face > img { width: 500%; transform: translate(-48%, -35%); }
+.king-symbol { position: absolute; right: -2%; bottom: 0; display: grid; place-items: center; width: 45%; height: 44%; border-radius: 6px; font-size: .48em; line-height: 1; }
+.white-piece .king-symbol { background: #fff8e6; color: #273422; border: 1px solid #273422; }
+.black-piece .king-symbol { background: #242022; color: #fff5dc; border: 1px solid #fff5dc; }
+.drag-ghost .character-king { width: 81%; height: 86%; }
+.character-poster { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 20px; border: 1px solid var(--border); border-radius: 20px; background: var(--card); transform: rotate(2deg); }
+.duel-character { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 20px; padding: 30px 12px; border-radius: 13px; background: #23432e; border: 1px solid #6b9d6d; }
+.duel-character[data-character="gud"] { background: #4b272d; border-color: #b47170; }
+.duel-character .character-portrait { width: clamp(90px,10vw,145px); height: clamp(110px,12vw,170px); border-radius: 18px; }
+.duel-character strong { font-size: 26px; color: #fff5e7; letter-spacing: -.03em; }
+.duel-vs { position: absolute; top: 43%; left: 50%; transform: translate(-50%,-50%) rotate(-9deg); z-index: 1; display: grid; place-items: center; width: 45px; height: 45px; border-radius: 50%; background: #f6e7bd; color: #352615; border: 3px solid var(--card); font-size: 14px; font-weight: 900; }
+.character-poster > p { grid-column: 1 / -1; text-align: center; font-size: 14px; color: var(--muted-foreground); margin: 4px 0; }
+.panel-note, .panel-copy, .board-tools, .premove-note { font-size: 12px; }
+@media (max-width: 700px) {
+    .club-identity { gap: 10px; }
+    .identity-portrait { width: 48px; height: 53px; border-radius: 11px; }
+    .signed-in-player { margin-top: 5px; font-size: 12px; }
+    .signed-in-player strong { font-size: 20px; }
+    .character-player, .board-frame + .character-player { padding: 7px 9px; gap: 9px; }
+    .character-player .character-portrait { width: 43px; height: 49px; border-radius: 10px; }
+    .character-player .player-info strong { font-size: 15px; }
+    .character-player .player-info > span { font-size: 12px; }
+    .character-player .clock { min-width: 102px; font-size: 24px; }
+    .character-king .king-face { border-width: 1px; }
+    .king-symbol { border-radius: 4px; }
+    .character-poster { max-width: 450px; width: 100%; margin: auto; }
+    .duel-character .character-portrait { width: 100px; height: 118px; }
+    .board-tools { align-items: start; }
+    .board-tools > span { max-width: 72%; }
+    .board-tools button { font-size: 11px; flex-shrink: 0; }
+}

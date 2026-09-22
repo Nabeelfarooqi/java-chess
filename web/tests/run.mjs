@@ -5,7 +5,7 @@ import {DatabaseSync} from 'node:sqlite';
 import assert from 'node:assert/strict';
 import {newPlayer} from '../scripts/player-pin.mjs';
 const build=new URL('../.test-build/',import.meta.url);mkdirSync(build,{recursive:true});
-const files=['lib/board.ts','lib/room-update.ts','lib/review.ts','lib/game.ts','lib/server/auth.ts','lib/server/store.ts','lib/server/live.ts','lib/server/api.ts','app/api/room/route.ts'];
+const files=['lib/characters.ts','lib/board.ts','lib/room-update.ts','lib/review.ts','lib/game.ts','lib/server/auth.ts','lib/server/store.ts','lib/server/live.ts','lib/server/api.ts','app/api/room/route.ts'];
 for(const file of files){let source=readFileSync(new URL('../'+file,import.meta.url),'utf8');
  if(file==='app/api/room/route.ts')source=source.replace("'cloudflare:workers'","'../../../env.cjs'").replaceAll("'@/lib/","'../../../lib/");
  source=source.replace(/from '(\.{1,2}\/[^']+)'/g,(_,path)=>`from '${path.endsWith('.cjs')?path:path+'.cjs'}'`);
@@ -23,7 +23,7 @@ const get=(cookie='',suffix='')=>GET(new Request('https://rival.test/api/room'+s
 let cookieOne,cookieTwo;
 await check('Anonymous game data and exports are blocked',async()=>{assert.equal((await get()).status,401);assert.equal((await get('','?export=all')).status,401);assert.equal((await POST(request({action:'create',minutes:5,increment:0}))).status,401)});
 await check('Cross-origin writes and malformed JSON are rejected',async()=>{assert.equal((await POST(request({action:'login',pin:testPins[0]},'','https://other.test'))).status,403);assert.equal((await POST(new Request('https://rival.test/api/room',{method:'POST',headers:{Origin:'https://rival.test','Content-Type':'application/json'},body:'['}))).status,400)});
-await check('Original PINs still resolve to the original player identities',async()=>{const a=await POST(request({action:'login',pin:testPins[0]}));assert.equal(a.status,200);cookieOne=a.headers.get('set-cookie').split(';')[0];assert.match(a.headers.get('set-cookie'),/HttpOnly.*SameSite=Strict.*Secure/);assert.equal((await a.json()).me,'one');const b=await POST(request({action:'login',pin:testPins[1]}));assert.equal(b.status,200);cookieTwo=b.headers.get('set-cookie').split(';')[0];assert.equal((await b.json()).me,'two');assert.notEqual(cookieOne,cookieTwo)});
+await check('Original PINs still resolve to the original player identities',async()=>{const a=await POST(request({action:'login',pin:testPins[0]}));assert.equal(a.status,200);cookieOne=a.headers.get('set-cookie').split(';')[0];assert.match(a.headers.get('set-cookie'),/HttpOnly.*SameSite=Strict.*Secure/);const walan=await a.json();assert.equal(walan.me,'one');assert.equal(walan.players.find(p=>p.id==='one').name,'Walan');const b=await POST(request({action:'login',pin:testPins[1]}));assert.equal(b.status,200);cookieTwo=b.headers.get('set-cookie').split(';')[0];const gud=await b.json();assert.equal(gud.me,'two');assert.equal(gud.players.find(p=>p.id==='two').name,'Gud');assert.notEqual(cookieOne,cookieTwo)});
 await check('Invalid PIN and forged session are rejected',async()=>{assert.equal((await POST(request({action:'login',pin:'00000000'}))).status,401);assert.equal((await get('rr_session='+'a'.repeat(64))).status,401);assert.equal(await verifyPin('00000000',env.PIN_ONE_HASH),false)});
 const store=new Store(env.DB);let g;
 await check('A player cannot join two simultaneous challenges',async()=>{const r=await Promise.allSettled([store.create('one','two',1,0),store.create('two','one',10,2)]);assert.equal(r.filter(x=>x.status==='fulfilled').length,1);g=(await store.room('one')).game;assert.equal(g.status,'pending');assert.equal(g.whiteMs,60000)});
@@ -41,7 +41,7 @@ await check('Pending challenges expire without a result',()=>{const t=createGame
 await check('Castling and en passant remain legal',()=>{let t=transition(createGame('one','two',10,0,0),'two','accept',{},1);let now=2;for(const [from,to] of [['e2','e4'],['a7','a6'],['e4','e5'],['d7','d5'],['e5','d6']])t=transition(t,t.fen.split(' ')[1]==='w'?'one':'two','move',{from,to},now++);assert.equal(replay(t).get('d5'),undefined);assert.equal(replay(t).get('d6').type,'p');let c=transition(createGame('one','two',10,0,0),'two','accept',{},1);for(const [from,to] of [['e2','e4'],['e7','e5'],['g1','f3'],['b8','c6'],['f1','c4'],['g8','f6'],['e1','g1']])c=transition(c,c.fen.split(' ')[1]==='w'?'one':'two','move',{from,to},now++);assert.equal(replay(c).get('g1').type,'k');assert.equal(replay(c).get('f1').type,'r')});
 await check('Pawn promotion preserves the selected knight',()=>{let t=transition(createGame('one','two',10,0,0),'two','accept',{},1);let now=2;for(const [from,to] of [['a2','a4'],['h7','h5'],['a4','a5'],['h5','h4'],['a5','a6'],['h4','h3'],['a6','b7'],['h3','g2']])t=transition(t,t.fen.split(' ')[1]==='w'?'one':'two','move',{from,to},now++);t=transition(t,'one','move',{from:'b7',to:'a8',promotion:'n'},now);assert.equal(replay(t).get('a8').type,'n');assert.match(t.moves.at(-1),/=N/)});
 await check('Threefold repetition automatically saves a draw',()=>{let t=transition(createGame('one','two',10,0,0),'two','accept',{},1);let now=2;for(let i=0;i<2;i++)for(const [from,to] of [['g1','f3'],['g8','f6'],['f3','g1'],['f6','g8']])t=transition(t,t.fen.split(' ')[1]==='w'?'one':'two','move',{from,to},now++);assert.equal(t.status,'finished');assert.equal(t.reason,'Threefold repetition')});
-await check('A profile change only changes the current player',async()=>{const r=await POST(request({action:'rename',name:'Rival'},cookieTwo));assert.equal(r.status,200);const data=await r.json();assert.equal(data.players.find(p=>p.id==='two').name,'Rival');assert.equal(data.players.find(p=>p.id==='one').name,'Nabeel')});
+await check('A profile change only changes the current player',async()=>{const r=await POST(request({action:'rename',name:'Rival'},cookieTwo));assert.equal(r.status,200);const data=await r.json();assert.equal(data.players.find(p=>p.id==='two').name,'Rival');assert.equal(data.players.find(p=>p.id==='one').name,'Walan')});
 await check('PIN guessing hits a persistent rate limit',async()=>{for(let i=0;i<8;i++)await POST(request({action:'login',pin:'00000000'}));assert.equal((await POST(request({action:'login',pin:testPins[0]}))).status,429)});
 await check('Locking revokes only the current session',async()=>{assert.equal((await POST(request({action:'logout'},cookieOne))).status,200);assert.equal((await get(cookieOne)).status,401);assert.equal((await get(cookieTwo)).status,200)});
 await check('Export contains saved games but no PIN or session hashes',async()=>{const data=await (await get(cookieTwo,'?export=all')).json();assert.equal(data.games.length,3);assert.equal(data.stats.two.wins,1);assert.ok(!JSON.stringify(data).includes('token_hash'));assert.ok(!JSON.stringify(data).includes('PIN_'))});
@@ -60,6 +60,13 @@ await check('Upgrade preserves old identities, games, sessions and an occupied b
  assert.equal(legacy.prepare("SELECT player_id FROM sessions WHERE token_hash='old-token'").get().player_id,'one');
  assert.deepEqual(legacy.prepare('SELECT player_id FROM game_seats ORDER BY player_id').all().map(r=>r.player_id),['one','two']);
  assert.equal(legacy.prepare("SELECT state FROM games WHERE id='old-finished'").get().state,JSON.stringify(finished));
+ legacy.exec("UPDATE players SET pin_hash='retained-hash' WHERE id='two'; INSERT INTO players(id,name,pin_hash) VALUES ('usman','Usman','usman-hash')");
+ const retained = Object.fromEntries(['games','sessions','game_seats','pin_settings'].map(table=>[table,legacy.prepare('SELECT * FROM '+table).all()]));
+ legacy.exec(readFileSync(new URL('../drizzle/0002_character_names.sql',import.meta.url),'utf8'));
+ assert.deepEqual(legacy.prepare('SELECT id,name,pin_hash FROM players ORDER BY id').all().map(r=>({...r})),[
+  {id:'one',name:'Walan',pin_hash:null},{id:'two',name:'Gud',pin_hash:'retained-hash'},{id:'usman',name:'Usman',pin_hash:'usman-hash'}
+ ]);
+ for(const [table,rows] of Object.entries(retained))assert.deepEqual(legacy.prepare('SELECT * FROM '+table).all(),rows,table+' must not change during character rename');
  legacy.close();
 });
 let usman,cookieUsman;
@@ -149,6 +156,13 @@ await check('History and exports include only your games; renaming keeps your sc
  sql.close();env.DB=connect();assert.equal((await (await get(cookieUsman)).json()).stats[usman.id].wins,1);
 });
 
+const {characterFor,characterForColor}=require(new URL('lib/characters.cjs',build).pathname);
+await check('Character identity follows the PIN player when colors swap and leaves other rivals alone',()=>{
+ assert.equal(characterFor('one').name,'Walan');assert.equal(characterFor('two').name,'Gud');
+ assert.equal(characterForColor('w','one','two').key,'walan');assert.equal(characterForColor('b','one','two').key,'gud');
+ assert.equal(characterForColor('w','two','one').key,'gud');assert.equal(characterForColor('b','two','one').key,'walan');
+ assert.equal(characterFor(usman.id),null);assert.equal(characterFor('Walan'),null);assert.equal(characterFor(undefined),null);
+});
 const {Chess}=require('chess.js');
 const {squareAt,legalMove,previewMove,premoveReady,premoveTargets}=require(new URL('lib/board.cjs',build).pathname);
 const {mergeRoom}=require(new URL('lib/room-update.cjs',build).pathname);

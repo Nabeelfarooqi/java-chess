@@ -99,6 +99,6 @@ The game uses only Java/Swing and bundled system fonts. The board and screenshot
 
 ## Private online chess: Rival Room
 
-The new [web companion](web/README.md) lets friends play timed chess through a link, with a personal PIN for each player, a rival picker, and individual and head-to-head wins/losses/draws. It includes mouse/touch dragging, castling, a queued premove, live updates, and Stockfish Game Review for finished games. It deploys to your own Cloudflare account with Workers, D1, and WebSocket Durable Objects. The desktop Java game above stays available in IntelliJ.
+The new [web companion](web/README.md) lets friends play timed chess through a link, with a personal PIN for each player, a rival picker, and individual and head-to-head wins/losses/draws. It includes mouse/touch dragging, castling, a queued premove, live updates, and Stockfish Game Review for finished games. The original PIN identities now appear as Walan and Gud, with their own character portraits, room colors, board halves, and kings; existing PINs and records are retained. It deploys to your own Cloudflare account with Workers, D1, and WebSocket Durable Objects. The desktop Java game above stays available in IntelliJ.
 
 See [web/README.md](web/README.md) for the one-time Cloudflare setup and deployment commands.
