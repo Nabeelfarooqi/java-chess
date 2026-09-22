@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
 import { BlueBubbles, localBlueBubblesUrl } from '../scripts/bluebubbles-client.mjs';
+import { chatKind, chatCounts, chatDiagnostics } from '../scripts/imessage-chat-list.mjs';
 import { Journal, deliver, privateJson } from '../scripts/imessage-core.mjs';
 import { winnerCard } from '../scripts/winner-card.mjs';
 import { findPlayer } from '../scripts/cloudflare-admin.mjs';
@@ -13,6 +14,30 @@ const result={white:{id:'one',name:'Walan',character:'walan'},black:{id:'gud',na
 const job={id:'game:result',kind:'result',gameId:'game',leaseToken:'lease',attempts:1,text:'Gud beat Walan',result};
 let passed=0;async function check(name,fn){await fn();console.log('PASS '+name);passed++;}
 try {
+ await check('Chat discovery preserves unsupported services and paginates to existing iMessage conversations',async()=>{
+  const firstPage=Array.from({length:100},(_,i)=>({guid:`SMS;-;phone-${i}`,participants:[]}));
+  const lastPage=[{guid:'iMessage;-;usman@example.test',participants:[{address:'usman@example.test'}]}, {guid:'iMessage;+;private-group-id',displayName:'FRQ',participants:[{},{}]}, {guid:'any;-;private-address'}];
+  const calls=[];const bb=new BlueBubbles('http://127.0.0.1:1234','test-only',async(url,options)=>{
+   calls.push({path:url.pathname,body:JSON.parse(options.body)});
+   return Response.json({status:200,data:calls.length===1?firstPage:lastPage});
+  });
+  const chats=await bb.chats();
+  assert.deepEqual(calls.map(c=>c.path),['/api/v1/chat/query','/api/v1/chat/query']);
+  assert.deepEqual(calls.map(c=>c.body.offset),[0,100]);
+  assert.deepEqual(chatCounts(chats),{total:103,direct:1,group:1,unsupported:101});
+  assert.deepEqual(chats.filter(c=>chatKind(c)==='direct').map(c=>c.guid),['iMessage;-;usman@example.test']);
+  assert.deepEqual(chats.filter(c=>chatKind(c)==='group').map(c=>c.displayName),['FRQ']);
+ });
+ await check('Chat diagnostics distinguish empty API results from filtered chats without disclosing addresses or message bodies',()=>{
+  const chats=[{guid:'iMessage;-;usman@example.test',style:45,participants:[{address:'usman@example.test'}],lastMessage:{text:'private-message'}},{guid:'iMessage;+;private-group-id',displayName:'FRQ',style:43,participants:[{},{}]},{guid:'any;-;private-address'},{guid:'private-unknown-address'},null];
+  const report=chatDiagnostics(chats);
+  assert.match(report,/5 chats: 1 direct iMessage, 1 iMessage groups, 3 unsupported/);
+  assert.match(report,/FRQ \| group \| participants: 2 \| style: 43/);
+  assert.match(report,/any;-;\[hidden\]: 1/);
+  for(const secret of ['usman@example.test','private-message','private-group-id','private-address','private-unknown-address']) assert.ok(!report.includes(secret));
+  assert.match(chatDiagnostics([]),/API returned an empty list/);
+  assert.equal(chatKind(null),'unsupported');assert.equal(chatKind({guid:12}),'unsupported');
+ });
  await check('BlueBubbles uses documented local AppleScript text and multipart PNG endpoints',async()=>{
   const calls=[];const bb=new BlueBubbles('http://127.0.0.1:1234','test-password',async(url,options)=>{calls.push({url,options});return Response.json({status:200,data:{guid:'accepted'}})});
   await bb.text(config.targets.gud,'Challenge text','test-guid');await bb.image(config.groupChatGuid,Buffer.from([1,2,3]),'image-guid');

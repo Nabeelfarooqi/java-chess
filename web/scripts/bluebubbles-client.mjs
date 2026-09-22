@@ -24,7 +24,9 @@ export class BlueBubbles {
       if (!Array.isArray(page)) throw new Error('Could not read the chat list from BlueBubbles.');
       found.push(...page); if (page.length < 100) break;
     }
-    return found.filter(chat => typeof chat.guid === 'string' && chat.guid.startsWith('iMessage;'));
+    // Preserve every returned chat so setup can explain unsupported services
+    // instead of reporting that existing conversations do not exist.
+    return found;
   }
   text(chatGuid, message, tempGuid) { return this.request('message/text', { chatGuid, message, tempGuid, method: 'apple-script' }); }
   image(chatGuid, png, tempGuid) {

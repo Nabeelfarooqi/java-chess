@@ -2,6 +2,7 @@ import { mkdirSync, existsSync, readFileSync, chmodSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
 import { BlueBubbles, localBlueBubblesUrl } from './bluebubbles-client.mjs';
+import { chatKind, chatSummary } from './imessage-chat-list.mjs';
 import { privateJson, siteOrigin, cloudBridge } from './imessage-core.mjs';
 import { question, hidden } from './terminal-input.mjs';
 import { query, wrangler } from './cloudflare-admin.mjs';
@@ -9,7 +10,7 @@ const directory = resolve('.imessage'), path = resolve(directory, 'config.json')
 function chatLabel(chat) { return [chat.displayName || 'Unnamed chat', ...(chat.participants || []).map(p => p.address)].join(' · '); }
 async function choose(chats, label, optional = false) {
   console.log('\n'+label); chats.forEach((chat, index) => console.log(`${index+1}. ${chatLabel(chat)}`));
-  if (!chats.length) throw new Error('Open Messages and create the required iMessage chat first, then rerun setup.');
+  if (!chats.length) throw new Error('BlueBubbles supplied no selectable chats for this destination. Run npm run imessage:chats to check what the API can see. Existing Messages chats do not need to be recreated. Nothing saved.');
   while (true) {
     const choice = await question(optional ? 'Chat number (Enter to skip): ' : 'Chat number: ');
     if (!choice && optional) return null;
@@ -28,14 +29,16 @@ try {
   const blueBubblesPassword = await hidden('BlueBubbles server password (hidden): ');
   const bb = new BlueBubbles(blueBubblesUrl, blueBubblesPassword); await bb.ping();
   const chats = await bb.chats();
+  console.log(chatSummary(chats));
+  console.log('Direct chats may appear as phone numbers or emails rather than Contacts names. Check the participant address before choosing.');
   const players = query('SELECT id,name,character FROM players ORDER BY name');
   const targets = {}, labels = [];
   for (const player of players) {
     const contactName = player.id === 'one' ? 'Nabeel' : player.id === 'two' ? 'Saif' : player.character === 'gud' ? 'Usman' : player.name;
-    const chosen = await choose(chats.filter(c => c.guid.startsWith('iMessage;-;')), 'Private challenge links for '+player.name+' (select '+contactName+"'s direct chat)", true);
+    const chosen = await choose(chats.filter(c => chatKind(c) === 'direct'), 'Private challenge links for '+player.name+' (select '+contactName+"'s direct chat)", true);
     if (chosen) { targets[player.id] = chosen.guid; labels.push(player.name+' → '+chatLabel(chosen)); }
   }
-  const group = await choose(chats.filter(c => c.guid.startsWith('iMessage;+;')), 'Results and updated head-to-head records (select FRQ and verify its members)');
+  const group = await choose(chats.filter(c => chatKind(c) === 'group'), 'Results and updated head-to-head records (select FRQ and verify its members)');
   console.log('\nConfirm destinations:\n'+labels.join('\n')+'\nResults → '+chatLabel(group));
   console.log('Starting the sender later will send as the Apple account signed into Messages on this Mac.');
   if ((await question('Type SAVE to use these destinations: ')) !== 'SAVE') throw new Error('Cancelled. Nothing saved.');

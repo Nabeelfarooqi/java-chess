@@ -103,6 +103,8 @@ The new [web companion](web/README.md) lets friends play timed chess through a l
 
 Choose an easier six-digit PIN for any player with `cloudflare:set-pin`, preserving their identity and scores. Optional [BlueBubbles iMessage notifications](web/IMESSAGE_SETUP.md) send challenge links privately to a rival and text results with updated head-to-head records to your selected group through your Mac. Messages use Nabeel for Walan and Usman for Gud. Map Gud to Usman's direct conversation, Saif to Saif's, and choose FRQ for group results during setup. Images and memes are paused. Notifications stay off until configured; the chess site runs independently of the Mac.
 
+If Messages shows those chats but setup cannot find them, run `npm run imessage:chats` from `web/` on your Mac. This read-only diagnostic distinguishes an empty BlueBubbles response from unsupported chat formats, without sending messages or changing your saved destinations. See [chat troubleshooting](web/IMESSAGE_SETUP.md#chats-exist-in-messages-but-setup-cannot-find-them).
+
 See [web/README.md](web/README.md) for Cloudflare setup, deployment, PIN management, and verification commands.
 
 Group results rotate through owner-approved win jokes and separate draw phrases for every pairing, while keeping the winner and head-to-head record accurate. Phrase selection stays consistent when a notification is retried.

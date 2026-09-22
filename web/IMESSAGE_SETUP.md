@@ -52,6 +52,20 @@ The wizard asks for:
 
 Review the displayed names and participant addresses, then type `SAVE`. The wizard stores the destinations on the Mac, installs a random bridge-token hash as a Worker secret, verifies the specified site, and enables future notifications. It sends no test messages. Starting the sender after a gap can deliver results queued since setup.
 
+### Chats exist in Messages but setup cannot find them
+
+Run the read-only check on your Mac:
+
+```sh
+npm run imessage:chats
+```
+
+Press Enter for the local BlueBubbles URL and enter its password when prompted. No chess-site URL or Cloudflare login is required. This command sends no messages, changes no destinations, and saves no credentials. It reports the total returned by BlueBubbles, supported direct/group counts, redacted identifier formats, and up to 20 recent chat labels/types. It omits participant addresses and message bodies; chat display names remain visible.
+
+An empty API response is different from chats that the wizard excludes as unsupported. If the total is zero, check BlueBubbles Full Disk Access and that Messages on the Mac is signed into the intended account, then use **BlueBubbles Logs → Manage → Full Restart**. If the total is nonzero but the required type is missing, use the diagnostic output to investigate the returned formats; do not recreate existing conversations or guess their identifiers. Only explicit iMessage direct chats can receive challenges, and only explicit iMessage groups can receive results. Other services stay unselectable.
+
+Messages contact names are not always returned by the BlueBubbles chat API. Usman or Saif Hassan may appear as an unnamed chat with their phone number/email during setup; verify that address against Contacts before selecting. Gud maps to Usman, Saif maps to Saif Hassan, and results go to FRQ. The old generic “create the required iMessage chat” error did not establish that those conversations were missing; current setup prints the API counts and directs you to this check instead. This Mac-only diagnostic update does not require redeploying the chess site.
+
 Only run one sender on one Mac. Stop it before rerunning setup to change destinations. Do not change destinations while resolving an uncertain delivery; the journal deliberately refuses to redirect an existing event into a different chat.
 
 ## 4. Run the sender
