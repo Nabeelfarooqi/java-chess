@@ -4,15 +4,16 @@ import {createRequire} from 'node:module';
 import {DatabaseSync} from 'node:sqlite';
 import assert from 'node:assert/strict';
 import {newPlayer} from '../scripts/player-pin.mjs';
+import {pinUpdate} from '../scripts/set-pin.mjs';
 const build=new URL('../.test-build/',import.meta.url);mkdirSync(build,{recursive:true});
-const files=['lib/characters.ts','lib/board.ts','lib/room-update.ts','lib/review.ts','lib/game.ts','lib/server/auth.ts','lib/server/store.ts','lib/server/live.ts','lib/server/api.ts','app/api/room/route.ts'];
+const files=['lib/server/imessage.ts','lib/characters.ts','lib/board.ts','lib/room-update.ts','lib/review.ts','lib/game.ts','lib/server/auth.ts','lib/server/store.ts','lib/server/live.ts','lib/server/api.ts','app/api/room/route.ts'];
 for(const file of files){let source=readFileSync(new URL('../'+file,import.meta.url),'utf8');
  if(file==='app/api/room/route.ts')source=source.replace("'cloudflare:workers'","'../../../env.cjs'").replaceAll("'@/lib/","'../../../lib/");
  source=source.replace(/from '(\.{1,2}\/[^']+)'/g,(_,path)=>`from '${path.endsWith('.cjs')?path:path+'.cjs'}'`);
  const path=new URL(file.replace(/\.ts$/,'.cjs'),build);mkdirSync(new URL('.',path),{recursive:true});writeFileSync(path,ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText);
 }
 writeFileSync(new URL('env.cjs',build),'exports.env = {};');
-const require=createRequire(import.meta.url);const {env}=require(new URL('env.cjs',build).pathname);const {createGame,transition,expireGame,clockMs,replay,pgn}=require(new URL('lib/game.cjs',build).pathname);const {Store}=require(new URL('lib/server/store.cjs',build).pathname);const {pinHash,verifyPin,sessionPlayer,sessionCookie}=require(new URL('lib/server/auth.cjs',build).pathname);const {GET,POST}=require(new URL('app/api/room/route.cjs',build).pathname);
+const require=createRequire(import.meta.url);const {env}=require(new URL('env.cjs',build).pathname);const {createGame,transition,expireGame,clockMs,replay,pgn}=require(new URL('lib/game.cjs',build).pathname);const {Store}=require(new URL('lib/server/store.cjs',build).pathname);const {pinHash,verifyPin,sessionPlayer,sessionCookie,digest}=require(new URL('lib/server/auth.cjs',build).pathname);const {GET,POST}=require(new URL('app/api/room/route.cjs',build).pathname);
 const path=new URL('test.sqlite',build).pathname;try{rmSync(path)}catch{};let sql;
 function connect(){sql=new DatabaseSync(path);return {prepare(text){const values=[];const statement={bind(...args){values.push(...args);return statement},async first(){return sql.prepare(text).get(...values)||null},async all(){return {results:sql.prepare(text).all(...values)}},async run(){const prepared=sql.prepare(text);if(prepared.columns().length)return {results:prepared.all(...values),meta:{changes:0},success:true};const r=prepared.run(...values);return {results:[],meta:{changes:Number(r.changes)},success:true}}};return statement;},async batch(statements){sql.exec('BEGIN');try{const values=[];for(const statement of statements)values.push(await statement.run());sql.exec('COMMIT');return values}catch(e){sql.exec('ROLLBACK');throw e}}}}
 env.DB=connect();for(const f of readdirSync(new URL('../drizzle/',import.meta.url)).filter(f=>f.endsWith('.sql')).sort())sql.exec(readFileSync(new URL('../drizzle/'+f,import.meta.url),'utf8'));
@@ -228,4 +229,78 @@ await check('Review normalizes engine scores to White and classifies errors for 
  assert.equal(classify(b,score(-20,'d7d5'),score(150,'e2e4')).quality,'Mistake');
  assert.equal(classify(w,score(20,'f2f3'),score(10,'e7e5')).quality,'Best');
 });
+
+await check('Chosen six-digit PIN replaces only its owner code and sessions, retaining leading zeros',async()=>{
+ sql.exec('DELETE FROM attempts');
+ const oldLogin=await POST(request({action:'login',pin:testPins[0]}));const oldSession=oldLogin.headers.get('set-cookie').split(';')[0];
+ const salt=sql.prepare('SELECT salt FROM pin_settings WHERE id=1').get().salt;
+ const savedGames=sql.prepare('SELECT * FROM games ORDER BY id').all();
+ assert.equal(sql.prepare(pinUpdate('one','004281',salt)).get().id,'one');
+ assert.equal((await get(oldSession)).status,401);
+ assert.equal((await POST(request({action:'login',pin:testPins[0]}))).status,401);
+ const changed=await POST(request({action:'login',pin:'004281'}));assert.equal(changed.status,200);assert.equal((await changed.json()).me,'one');
+ assert.equal((await get(cookieTwo)).status,200);assert.equal((await get(cookieUsman)).status,200);
+ assert.equal(sql.prepare(pinUpdate('two','004281',salt)).get(),undefined);
+ assert.equal((await POST(request({action:'login',pin:testPins[1]}))).status,200);
+ assert.deepEqual(sql.prepare('SELECT * FROM games ORDER BY id').all(),savedGames);
+ assert.throws(()=>pinUpdate('one','1234',salt),/6 digits/);
+});
+await check('Gud can replace his long code without changing his identity or character',async()=>{
+ sql.exec('DELETE FROM attempts');const salt=sql.prepare('SELECT salt FROM pin_settings WHERE id=1').get().salt;
+ sql.prepare(pinUpdate(usman.id,'583920',salt)).get();
+ assert.equal((await get(cookieUsman)).status,401);
+ assert.equal((await POST(request({action:'login',pin:usman.pin}))).status,401);
+ const logged=await POST(request({action:'login',pin:'583920'}));assert.equal(logged.status,200);const room=await logged.json();
+ assert.equal(room.me,usman.id);assert.equal(room.players.find(p=>p.id===usman.id).character,'gud');assert.equal(room.stats[usman.id].wins,1);
+});
+const {handleBridge}=require(new URL('lib/server/imessage.cjs',build).pathname);
+const bridgeToken='c'.repeat(64);env.IMESSAGE_BRIDGE_HASH=await digest(bridgeToken);
+const bridge=(body,token=bridgeToken)=>handleBridge(new Request('https://rival.test/api/imessage',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify(body)}),env);
+await check('Notification queue is off by default and cannot be read with a PIN or forged bridge token',async()=>{
+ assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM notification_outbox').get().n,0);
+ assert.equal((await bridge({action:'status'},'')).status,401);assert.equal((await bridge({action:'claim'},'d'.repeat(64))).status,401);
+ assert.equal((await (await bridge({action:'claim'})).json()).enabled,false);
+ sql.exec('UPDATE notification_settings SET enabled=1');assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM notification_outbox').get().n,0);
+});
+let notificationGame,firstJob;
+await check('A committed challenge queues once and concurrent bridge claims cannot both take it',async()=>{
+ notificationGame=await reopened.create('one','two',5,0);
+ assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM notification_outbox').get().n,1);
+ const claims=await Promise.all([bridge({action:'claim'}),bridge({action:'claim'})]);const bodies=await Promise.all(claims.map(r=>r.json()));
+ const jobs=bodies.map(b=>b.job).filter(Boolean);assert.equal(jobs.length,1);firstJob=jobs[0];
+ assert.equal(firstJob.recipientId,'two');assert.equal(firstJob.kind,'challenge');assert.match(firstJob.text,/5\+0 chess/);assert.ok(!JSON.stringify(firstJob).includes('pin_hash'));
+ assert.equal((await bridge({action:'ack',id:firstJob.id,leaseToken:'wrong',status:'sent'})).status,409);
+ assert.equal((await bridge({action:'ack',id:firstJob.id,leaseToken:firstJob.leaseToken,status:'sent'})).status,200);
+ assert.equal((await (await bridge({action:'claim'})).json()).job,null);
+});
+await check('A finished game queues one result with both identities, characters, and pair scores',async()=>{
+ notificationGame=await reopened.act('two','accept',{gameId:notificationGame.id,version:notificationGame.version});
+ notificationGame=await reopened.act('one','resign',{gameId:notificationGame.id,version:notificationGame.version});
+ await assert.rejects(reopened.act('one','resign',{gameId:notificationGame.id,version:notificationGame.version}));
+ assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM notification_outbox WHERE kind='result'").get().n,1);
+ const job=(await (await bridge({action:'claim'})).json()).job;
+ assert.equal(job.kind,'result');assert.equal(job.result.winnerId,'two');assert.equal(job.result.white.character,'walan');assert.equal(job.result.black.character,null);
+ assert.ok(job.result.score.blackWins>=1);assert.equal(job.result.reason,'Resignation');
+ await bridge({action:'ack',id:job.id,leaseToken:job.leaseToken,status:'needs_review',detail:'test uncertain'});
+ assert.equal((await (await bridge({action:'claim'})).json()).job,null);
+ assert.equal((await (await bridge({action:'retry',id:job.id})).json()).updated,true);
+ const again=(await (await bridge({action:'claim'})).json()).job;assert.equal(again.attempts,1);
+ await bridge({action:'ack',id:again.id,leaseToken:again.leaseToken,status:'sent'});
+});
+await check('Cancelled challenges are skipped and never create winner announcements',async()=>{
+ let game=await reopened.create('one','two',5,0);game=await reopened.act('one','cancel',{gameId:game.id,version:game.version});
+ assert.equal((await (await bridge({action:'claim'})).json()).job,null);
+ assert.equal(sql.prepare('SELECT status FROM notification_outbox WHERE id=?').get(game.id+':challenge').status,'skipped');
+ assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM notification_outbox WHERE id=?').get(game.id+':result').n,0);
+});
+await check('The bridge settles expired clocks without an open browser and persists lease recovery',async()=>{
+ let game=await reopened.create('one',usman.id,1,0);game=await reopened.act(usman.id,'accept',{gameId:game.id,version:game.version});
+ await reopened.save(game,{...game,whiteMs:1,blackMs:1,turnAt:Date.now()-100});
+ const job=(await (await bridge({action:'claim'})).json()).job;assert.equal(job.kind,'result');assert.equal(job.result.reason,'Time expired');
+ sql.prepare('UPDATE notification_outbox SET lease_until=0 WHERE id=?').run(job.id);
+ const recovered=(await (await bridge({action:'claim'})).json()).job;assert.equal(recovered.id,job.id);assert.equal(recovered.attempts,2);assert.notEqual(recovered.leaseToken,job.leaseToken);
+ assert.equal((await bridge({action:'ack',id:job.id,leaseToken:job.leaseToken,status:'sent'})).status,409);
+ await bridge({action:'ack',id:recovered.id,leaseToken:recovered.leaseToken,status:'sent'});
+});
+
 sql.close();console.log(`\n${passed} integration checks passed.`);

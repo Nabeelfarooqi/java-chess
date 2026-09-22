@@ -52,3 +52,6 @@ cloudflare.local.json
 
 # Prepared from pinned, integrity-checked upstream assets at build time
 /public/engine/
+
+# Private iMessage bridge configuration, contacts, and delivery journal
+.imessage/

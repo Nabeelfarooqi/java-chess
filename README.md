@@ -101,4 +101,6 @@ The game uses only Java/Swing and bundled system fonts. The board and screenshot
 
 The new [web companion](web/README.md) lets friends play timed chess through a link, with a personal PIN for each player, a rival picker, and individual and head-to-head wins/losses/draws. It includes mouse/touch dragging, castling, a queued premove, live updates, and Stockfish Game Review for finished games. Nabeel’s PIN opens Walan and Usman’s PIN opens Gud, with their own character portraits, room colors, board halves, and kings. Saif retains his own profile; existing PINs and records are retained. It deploys to your own Cloudflare account with Workers, D1, and WebSocket Durable Objects. The desktop Java game above stays available in IntelliJ.
 
-See [web/README.md](web/README.md) for the one-time Cloudflare setup and deployment commands.
+Choose an easier six-digit PIN for any player with `cloudflare:set-pin`, preserving their identity and scores. Optional [BlueBubbles iMessage notifications](web/IMESSAGE_SETUP.md) send challenges to a rival and result cards to your existing group through your Mac. Notifications stay off until configured; the chess site runs independently of the Mac.
+
+See [web/README.md](web/README.md) for Cloudflare setup, deployment, PIN management, and verification commands.

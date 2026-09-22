@@ -12,12 +12,17 @@
     "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
-    "test": "node tests/run.mjs && node tests/realtime.mjs",
+    "test": "node tests/run.mjs && node tests/realtime.mjs && node tests/imessage.mjs",
     "typecheck": "tsc --noEmit",
     "cloudflare:setup": "node scripts/cloudflare-setup.mjs setup",
     "cloudflare:deploy": "node scripts/cloudflare-setup.mjs deploy",
     "cloudflare:pins": "node scripts/cloudflare-setup.mjs pins",
-    "cloudflare:add-player": "node scripts/cloudflare-setup.mjs add-player"
+    "cloudflare:add-player": "node scripts/cloudflare-setup.mjs add-player",
+    "cloudflare:set-pin": "node scripts/set-pin-cli.mjs",
+    "imessage:setup": "node scripts/imessage-setup.mjs",
+    "imessage:start": "node scripts/imessage-bridge.mjs",
+    "imessage:status": "node scripts/imessage-bridge.mjs status",
+    "imessage:retry": "node scripts/imessage-bridge.mjs retry"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -64,7 +69,8 @@
     "typescript": "5.9.3",
     "vinext": "1.0.0-beta.5",
     "vite": "8.0.13",
-    "wrangler": "4.92.0"
+    "wrangler": "4.92.0",
+    "sharp": "0.35.4"
   },
   "type": "module",
   "overrides": {

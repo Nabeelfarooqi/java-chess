@@ -27,16 +27,20 @@ export async function login(db: D1Database, req: Request, pin: unknown, env: {
     const ip = req.headers.get('cf-connecting-ip') || 'local-preview';
     await rateLimit(db, 'login-ip:' + await digest(ip), 8, 15 * 60000);
     await rateLimit(db, 'login-global', 50, 15 * 60000);
-    if (typeof pin !== 'string' || !/^(\d{8}|\d{12})$/.test(pin))
-        throw new GameError('Enter your personal 8- or 12-digit access code.', 401);
+    if (typeof pin !== 'string' || !/^(\d{6}|\d{8}|\d{12})$/.test(pin))
+        throw new GameError('Enter your personal 6-, 8-, or 12-digit access code.', 401);
     let player: PlayerId | null = null;
     if (pin.length === 8) {
         if (!env.PIN_ONE_HASH || !env.PIN_TWO_HASH)
             throw new GameError('Room access is not configured yet.', 503);
         const [one, two] = await Promise.all([verifyPin(pin, env.PIN_ONE_HASH), verifyPin(pin, env.PIN_TWO_HASH)]);
         player = one ? 'one' : two ? 'two' : null;
+        if (player) {
+            const saved = await db.prepare('SELECT pin_hash FROM players WHERE id=?').bind(player).first<{ pin_hash: string | null }>();
+            if (saved?.pin_hash) player = null; // A chosen PIN replaces this legacy secret for this player.
+        }
     } else {
-        // New codes have a separate length, so they can never collide with the original PINs.
+        // Chosen six-digit and generated twelve-digit codes cannot collide with legacy eight-digit PINs.
         // A shared random KDF salt permits one expensive derivation and an indexed lookup.
         const settings = await db.prepare('SELECT salt FROM pin_settings WHERE id=1').first<{ salt: string }>();
         if (settings) {

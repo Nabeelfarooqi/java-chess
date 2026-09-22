@@ -36,10 +36,10 @@ if(mode==='pins'){
  const pinOne=String(randomInt(10000000,100000000));let pinTwo;do{pinTwo=String(randomInt(10000000,100000000))}while(pinOne===pinTwo);
  const hash=pin=>{const salt=randomBytes(24).toString('hex');return salt+':'+pbkdf2Sync(pin,salt,100000,32,'sha256').toString('hex')};
  run(['secret','bulk','--config',config],JSON.stringify({PIN_ONE_HASH:hash(pinOne),PIN_TWO_HASH:hash(pinTwo)}));
- run(['d1','execute','DB','--remote','--config',config,'--command','DELETE FROM sessions']);
+ run(['d1','execute','DB','--remote','--config',config,'--command',"UPDATE players SET pin_hash=NULL WHERE id IN ('one','two'); DELETE FROM sessions WHERE player_id IN ('one','two')"]);
  console.log('\nSave these two personal access codes in a password manager. They are not saved to a file or GitHub.');
  console.log('Your code (Walan): '+pinOne);console.log('Your friend’s code (Saif): '+pinTwo);
- console.log('Share only your friend’s code with them. Rerunning this command replaces both codes and locks existing sessions.');
+ console.log('Share only your friend’s code with them. Rerunning this command replaces both original codes and locks their sessions. Additional players keep their codes.');
 }
 
 if(mode==='add-player'){

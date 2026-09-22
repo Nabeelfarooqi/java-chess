@@ -1,5 +1,5 @@
 import type { Game } from '../game';
-export type LiveEnv = { DB?: D1Database; LIVE_PLAYERS?: DurableObjectNamespace; PIN_ONE_HASH?: string; PIN_TWO_HASH?: string };
+export type LiveEnv = { DB?: D1Database; LIVE_PLAYERS?: DurableObjectNamespace; PIN_ONE_HASH?: string; PIN_TWO_HASH?: string; IMESSAGE_BRIDGE_HASH?: string };
 export async function broadcast(env: LiveEnv, game: Game) {
     if (!env.LIVE_PLAYERS) return;
     const body = JSON.stringify(game);

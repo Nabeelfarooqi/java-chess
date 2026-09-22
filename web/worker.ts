@@ -1,11 +1,13 @@
 import handler from 'vinext/server/fetch-handler';
 import { sessionPlayer } from './lib/server/auth';
+import { handleBridge } from './lib/server/imessage';
 import { handleGET, handlePOST } from './lib/server/api';
 import type { LiveEnv } from './lib/server/live';
 export { PlayerLive } from './lib/server/player-live';
 export default {
     async fetch(req: Request, env: LiveEnv, ctx: ExecutionContext): Promise<Response> {
         const url = new URL(req.url);
+        if (url.pathname === '/api/imessage') return handleBridge(req, env, ctx);
         if (url.pathname === '/api/live') {
             if (req.method !== 'GET' || req.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return new Response('WebSocket required', { status: 426 });
             if (req.headers.get('Origin') !== url.origin) return new Response('Forbidden', { status: 403 });

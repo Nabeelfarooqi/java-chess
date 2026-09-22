@@ -16,7 +16,7 @@ A private chess club that accompanies the Java desktop game. Open the same link,
 - PIN-linked characters: Walan’s green room and Gud’s red room, with their supplied portraits, themed board halves, and character kings. Other rivals keep their own names and neutral artwork.
 - Personal display names. One PIN belongs to each player; do not share your own PIN.
 
-Group-chat messages are not connected yet. Nothing sends a message to anyone.
+Optional iMessage notifications use BlueBubbles on your Mac: challenges go to the chosen rival’s direct chat, and finished games send a result plus a character PNG to your existing group. They stay off until you explicitly complete setup and run the sender. See [iMessage setup](IMESSAGE_SETUP.md).
 
 ## Deploy to your own Cloudflare account
 
@@ -33,7 +33,7 @@ npm run cloudflare:pins
 
 1. **Setup** opens Cloudflare's own login in your browser, then creates `rival-room-db`. It stores the database binding in ignored `cloudflare.local.json`. If you have several Cloudflare accounts, select the one that should own the game.
 2. **Deploy** prepares the pinned review engine, builds the Worker, applies only pending D1 schema migrations, and publishes. The build config adds the `LIVE_PLAYERS` Durable Object binding and its `player-live-v1` migration automatically; existing local Cloudflare configurations work without editing. Keep the `workers.dev` URL that Wrangler prints.
-3. **PINs** generates two different random codes, uploads only salted PBKDF2 hashes as Worker secrets, revokes existing sessions, and prints the codes in your local terminal. Save them in a password manager. Send your friend the URL and their code. Do not put the codes into GitHub or this README.
+3. **PINs** generates two different random codes, uploads only salted PBKDF2 hashes as Worker secrets, revokes Walan and Saif’s sessions, and prints the codes in your local terminal. Save them in a password manager. Send your friend the URL and their code. Do not put the codes into GitHub or this README.
 
 Until PIN hashes are configured, the room refuses entry. Running `cloudflare:pins` again **replaces both codes**; it does not reset the scores. Do not run it in CI: it requires an interactive terminal to keep codes out of CI logs.
 
@@ -61,7 +61,7 @@ If the database already exists, do not create a replacement. Copy `cloudflare.te
 }]
 ```
 
-The deploy script refuses a placeholder database ID. PIN hashes are runtime secrets, not build variables: `PIN_ONE_HASH` and `PIN_TWO_HASH`.
+The deploy script refuses a placeholder database ID. The original two PIN hashes are runtime secrets: `PIN_ONE_HASH` and `PIN_TWO_HASH`. Additional players and chosen six-digit PINs use `players.pin_hash` in D1; see below.
 
 ## Add Usman (Gud) or another rival
 
@@ -79,11 +79,42 @@ The command creates Usman’s profile as **Gud**, attaches the red character to 
 npm run cloudflare:add-player -- "Another Friend"
 ```
 
-Adding someone does not change anyone else’s code or scores. The original Walan/Saif codes remain eight digits; Usman/Gud keeps his twelve-digit code. New players receive twelve-digit codes, which cannot collide with the original codes. The server uses a randomly salted PBKDF2 derivation with an indexed hash lookup; plaintext PINs are not stored. Only someone with your Cloudflare account access can use this terminal command. A duplicate name is rejected, rather than silently replacing an existing identity. A player can change their display name in settings without changing their PIN or records.
+Adding someone does not change anyone else’s code or scores. Existing codes keep working until you change them. The original Walan/Saif codes are eight digits, and new players receive twelve-digit codes. Use `cloudflare:set-pin` below to choose a six-digit code for any existing player. The server uses a randomly salted PBKDF2 derivation with an indexed hash lookup; plaintext PINs are not stored. Only someone with your Cloudflare account access can use this terminal command. A duplicate name is rejected, rather than silently replacing an existing identity. A player can change their display name in settings without changing their PIN or records.
 
-**Do not use `cloudflare:pins` to add a friend.** That older command rotates Walan and Saif’s original PINs and revokes all sessions; it does not add players or erase scores. New-player codes cannot be recovered from storage, so save them when displayed.
+**Do not use `cloudflare:pins` to add a friend.** That older command rotates Walan and Saif’s original PINs and removes their chosen-code overrides and revokes only their sessions; it does not add players or erase scores. New-player codes cannot be recovered from storage, so save them when displayed.
 
 Database triggers reserve one seat per player atomically and release it with a finished/cancelled game. These triggers are part of `drizzle/0001_multiple_rivals.sql`; preserve them when editing future schema migrations.
+
+## Choose an easier PIN
+
+After deploying this update, run any of these in `web/`:
+
+```sh
+npm run cloudflare:set-pin -- Walan
+npm run cloudflare:set-pin -- Gud
+npm run cloudflare:set-pin -- Saif
+```
+
+Each command asks for exactly **six digits**, twice, with input hidden. Leading zeros work. `Usman` also selects Gud through his saved character identity; an exact player ID works if names are ambiguous. The command refuses a code already belonging to someone else. Do not put the PIN after the command: this keeps it out of shell history.
+
+Changing a code preserves that person’s ID, character, active game, and all scores. It invalidates only that person’s sessions and old code; the other players stay signed in. Setting the same chosen code again makes no change to existing sessions. Both the new six-digit codes and unchanged older codes are supported by the entry page.
+
+| Code | Stored in Cloudflare |
+| --- | --- |
+| Walan/Saif’s original eight-digit codes | Worker `rival-room` → Settings → Variables and Secrets: `PIN_ONE_HASH` / `PIN_TWO_HASH` |
+| Additional players’ twelve-digit codes | D1 `rival-room-db` → `players.pin_hash` |
+| Anyone’s chosen six-digit code | D1 `rival-room-db` → `players.pin_hash` |
+| Shared random salt for D1 PINs | D1 `rival-room-db` → `pin_settings` |
+
+These are one-way salted PBKDF2 hashes, **not readable codes**. The command derives and saves the replacement hash; typing a plain PIN into the database will not work. For Walan/Saif, a D1 PIN override disables their old Worker-secret code. Avoid `cloudflare:pins` when changing one person: it resets both original players to newly generated eight-digit codes.
+
+## Optional iMessage notifications
+
+Follow [IMESSAGE_SETUP.md](IMESSAGE_SETUP.md) after deployment. The Mac sender pulls authenticated events from Cloudflare and talks only to a local BlueBubbles server. The chess site never receives your BlueBubbles password or contacts. This requires a Mac online with Messages, BlueBubbles, and the Terminal sender running; the website and games continue working without it.
+
+A new challenge sends the challenger’s name, time control, and site link to the opponent’s mapped direct chat. A finished game sends text and a PNG with both characters, winner/draw, and the pair’s score to one chosen existing group. Gud remains Usman, Walan remains Nabeel, and Saif remains separate. This integration sends through the Apple account signed into Messages on the Mac. It does not create a separate bot identity.
+
+The queue is disabled by default and does not announce historical games. Cancelled, accepted, or expired challenges are skipped before delivery. Results wait while the Mac is offline. Database triggers enqueue each event with the saved game transaction; a lease and a local delivery journal prevent routine reconnects from resending confirmed parts. If BlueBubbles might have sent a message but did not confirm it, the event pauses for manual review instead of being blindly retried. No external messaging system can promise exactly-once delivery across every interruption.
 
 ## Walan and Gud characters
 
@@ -134,11 +165,11 @@ Use **The record → Export all** for a complete JSON backup and **Save PGN** fo
 - Committed moves are pushed to both players over authenticated WebSockets. Local legal previews respond immediately; the server still decides the saved position and result. Old responses cannot rewind a newer game version. Lightweight polling recovers missed messages and settles timeouts: normally every two seconds with a live socket, or about every 350 ms plus request time during active play without one. Full roster/history refreshes run separately. Actual latency depends on your network and Cloudflare region; no production latency target is promised.
 - Threefold repetition and the 50-move rule are automatic draws, using chess.js's online-game convention.
 - On timeout, the result is drawn if the non-flagging side has only a king, a single bishop or knight, or bishops all on one color; otherwise it wins. This is a practical room rule, not a full FIDE possible-mate adjudicator.
-- A disconnected player's clock continues. If both leave, a timeout is recorded the next time the room is requested, using the persisted clock state.
+- A disconnected player's clock continues. If both leave, a timeout is recorded the next time the room is requested or the enabled Mac sender checks for events, using the persisted clock state.
 - Challenges expire in 15 minutes. Session access lasts up to 12 hours or until Lock room is clicked. Browsers may restore session cookies; use Lock room on a shared device.
 - The entry page is reachable without an account. All game data, exports, player changes, and moves are protected by server-verified sessions.
 - PIN attempts are limited by IP and globally; sessions use random tokens stored hashed, with HttpOnly, SameSite=Strict, Secure cookies on HTTPS. Writes require a same-origin JSON request.
-- WebSocket notifications, recovery polling, and game actions consume Cloudflare Worker, Durable Object, and D1 resources. Cloudflare account quotas and service availability still apply; there is no always-on desktop server or subscription added by this code.
+- WebSocket notifications, recovery polling, and game actions consume Cloudflare Worker, Durable Object, and D1 resources. Cloudflare account quotas and service availability still apply; the chess game itself needs no desktop server. Optional iMessage delivery needs your Mac, and Cloudflare usage still counts toward your account limits.
 
 ## Development and checks
 
@@ -148,7 +179,7 @@ npm run typecheck
 npm run build
 ```
 
-Tests use disposable local SQLite databases and the local Workers/Miniflare runtime bundled with Wrangler. They verify access control, CSRF protection, rate limiting, multiple PIN identities, participant authorization, independent pair scores, safe upgrades and character renaming of existing records, character ownership across color swaps, legal moves, special moves, checkmate, draws, clock expiry, concurrent writes, session revocation, persistence after reopening the database, castling on both sides for both colors, premove legality, stale response handling, review classification, and authenticated WebSocket delivery/revocation. They do not contact your Cloudflare account.
+Tests use disposable local SQLite databases and the local Workers/Miniflare runtime bundled with Wrangler. They verify access control, CSRF protection, rate limiting, multiple PIN identities, participant authorization, independent pair scores, safe upgrades and character renaming of existing records, character ownership across color swaps, legal moves, special moves, checkmate, draws, clock expiry, concurrent writes, session revocation, persistence after reopening the database, castling on both sides for both colors, premove legality, stale response handling, review classification, and authenticated WebSocket delivery/revocation. They also check six-digit PIN replacement and duplicate rejection, notification migrations/leases, stale challenge suppression, result scores, uncertain sends, retry journals, documented BlueBubbles request formats, and PNG rendering. They do not contact your Cloudflare account or send real messages. Live Apple Messages permissions and delivery must be checked on the Mac after setup.
 
 The app uses React, TypeScript, Vinext, chess.js, Cloudflare D1, WebSocket Durable Objects, and a separately loaded Stockfish browser worker. The original Java Swing game remains in the repository root and opens normally in IntelliJ.
 
@@ -164,6 +195,9 @@ The app uses React, TypeScript, Vinext, chess.js, Cloudflare D1, WebSocket Durab
 | `lib/characters.ts`, `app/character-art.tsx`, `app/characters.css` | PIN-identity artwork, character kings, board camps, and room palettes. |
 | `app/player-clock.tsx` | Clock updates isolated from board rendering. |
 | `app/game-review.tsx`, `lib/review*.ts` | Review UI, browser engine protocol, and move-label heuristics. |
+| `lib/server/imessage.ts`, `drizzle/0004_imessage_pin_tools.sql` | Authenticated notification queue, committed-game triggers, and per-player PIN revocation. |
+| `scripts/set-pin.mjs`, `cloudflare-admin.mjs` | Hidden personal PIN replacement and Cloudflare administration. |
+| `scripts/imessage-*.mjs`, `bluebubbles-client.mjs`, `winner-card.mjs` | Local setup, sender, delivery journal, and result image rendering. |
 | `scripts/prepare-engine.mjs` | Pinned engine assets, integrity checks, and license/source attribution. |
 
 ## Change descriptions
