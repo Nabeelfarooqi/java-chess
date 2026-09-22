@@ -140,7 +140,7 @@ The queue is disabled by default and does not announce historical games. Cancell
 | Usman (his generated player ID) | Gud | Red hoodie |
 | Saif (original ID `two`) | Saif | Standard pieces and initial |
 
-Signing in selects your room theme, portrait, and “You are” name. The other player’s portrait appears beside their clock. The board’s four home ranks use their owner’s green or red palette, and each character’s portrait appears as a small badge on their king. All pieces use fixed white/black SVG artwork, including pawns, so iOS cannot substitute emoji or hide the chess color.
+Signing in selects your room theme, portrait, and “You are” name. The other player’s portrait appears beside their clock. The board’s four home ranks use their owner’s green or red palette. Walan and Gud’s faces fill their king pieces, with a small white/black SVG king badge showing their chess color. Other pieces use fixed white/black SVG artwork, including pawns, so iOS cannot substitute emoji or hide the chess color.
 
 Characters are saved on the player record in D1 and sent with the authenticated roster. They follow each game’s white/black assignments through rematches, board flips, dragging, premoves, and Game Review. Changing a display name never transfers the character, PIN, or scores; a unique index prevents assigning the same character twice. Other rivals use their own names, initials, and standard pieces.
 
