@@ -21,6 +21,7 @@
     "cloudflare:set-pin": "node scripts/set-pin-cli.mjs",
     "imessage:setup": "node scripts/imessage-setup.mjs",
     "imessage:chats": "node scripts/imessage-check-chats.mjs",
+    "imessage:groups": "node scripts/imessage-check-chats.mjs --groups",
     "imessage:start": "node scripts/imessage-bridge.mjs",
     "imessage:status": "node scripts/imessage-bridge.mjs status",
     "imessage:retry": "node scripts/imessage-bridge.mjs retry"

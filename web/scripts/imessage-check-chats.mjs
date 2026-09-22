@@ -1,5 +1,6 @@
 import { BlueBubbles, localBlueBubblesUrl } from './bluebubbles-client.mjs';
-import { chatDiagnostics } from './imessage-chat-list.mjs';
+import { chatDiagnostics, filterChats, chatKind } from './imessage-chat-list.mjs';
+import { groupActivityReport } from './imessage-group-activity.mjs';
 import { question, hidden } from './terminal-input.mjs';
 
 try {
@@ -9,7 +10,13 @@ try {
   const password = await hidden('BlueBubbles server password (hidden): ');
   const bb = new BlueBubbles(url, password);
   await bb.ping();
-  console.log(chatDiagnostics(await bb.chats()));
+  const chats = await bb.chats();
+  if (process.argv.includes('--groups')) {
+    const search = await question('Group name to check [FRQ]: ') || 'FRQ';
+    const matches = filterChats(chats.filter(chat => chatKind(chat) === 'group'), search);
+    console.log('Reading the newest message timestamp for matching groups. Message content is discarded.');
+    console.log(await groupActivityReport(matches, bb));
+  } else console.log(chatDiagnostics(chats));
 } catch (error) {
   console.error(error.message);
   process.exitCode = 1;

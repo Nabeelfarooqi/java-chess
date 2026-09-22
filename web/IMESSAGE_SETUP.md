@@ -68,6 +68,20 @@ An empty API response is different from chats that the wizard excludes as unsupp
 
 Messages contact names are not always returned by the BlueBubbles chat API. Usman or Saif Hassan may appear as an unnamed chat with their phone number/email during setup; verify that address against Contacts before selecting. Gud maps to Usman, Saif maps to Saif Hassan, and results go to FRQ. The old generic “create the required iMessage chat” error did not establish that those conversations were missing; current setup prints the API counts and directs you to this check instead. The native-chat compatibility and diagnostic updates run only on the Mac and do not require redeploying the chess site. Stop any running sender, pull the update, complete setup, then run `npm run imessage:start`.
 
+### Multiple FRQ groups have the same members
+
+A higher Chat ID is a newer database row, not proof of the currently active conversation. Keep the setup wizard open at its group-number prompt. Open a second Terminal window with **Command+N**, then run:
+
+```sh
+cd ~/Projects/java-chess/web
+git pull --ff-only
+npm run imessage:groups
+```
+
+Enter the local BlueBubbles URL/password, then press Enter for `FRQ` (or enter a different group name). The check reports each matching group's **Chat ID and newest stored message time** in the Mac's timezone. Compare those times with the conversation you intend to use in Messages, then return to the original setup window and select the numbered entry with that Chat ID. It does not select a group automatically, and equal times do not resolve ambiguous threads. A failed lookup is shown as a failure, not as an empty chat.
+
+This is read-only: no test messages, changed destinations, saved credentials, or Cloudflare changes. For each matching group it requests one latest-message object from the local BlueBubbles API and retains only its timestamp; message text, sender details, and attachments are discarded and never printed or saved. The report shows group names and member counts, without participant addresses. There is no need to restart setup or redeploy the site to run this check.
+
 Only run one sender on one Mac. Stop it before rerunning setup to change destinations. Do not change destinations while resolving an uncertain delivery; the journal deliberately refuses to redirect an existing event into a different chat.
 
 ## 4. Run the sender

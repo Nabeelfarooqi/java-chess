@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import sharp from 'sharp';
 import { BlueBubbles, localBlueBubblesUrl } from '../scripts/bluebubbles-client.mjs';
 import { chatKind, chatCounts, chatDiagnostics, chatLabel, filterChats } from '../scripts/imessage-chat-list.mjs';
+import { groupActivityReport } from '../scripts/imessage-group-activity.mjs';
 import { Journal, deliver, privateJson } from '../scripts/imessage-core.mjs';
 import { winnerCard } from '../scripts/winner-card.mjs';
 import { findPlayer } from '../scripts/cloudflare-admin.mjs';
@@ -14,6 +15,29 @@ const result={white:{id:'one',name:'Walan',character:'walan'},black:{id:'gud',na
 const job={id:'game:result',kind:'result',gameId:'game',leaseToken:'lease',attempts:1,text:'Gud beat Walan',result};
 let passed=0;async function check(name,fn){await fn();console.log('PASS '+name);passed++;}
 try {
+ await check('Duplicate-group activity reads only the latest entry per exact group and never sends, merges, or exposes message content',async()=>{
+  const timestamp=Date.UTC(2026,8,22,3,0),calls=[];
+  const bb=new BlueBubbles('http://127.0.0.1:1234','test-password',async(url,options)=>{
+   calls.push({url,options});
+   if(calls.length===3) return Response.json({status:500},{status:500});
+   return Response.json({status:200,data:calls.length===1?[{dateCreated:timestamp,text:'private body',handle:{address:'private@example.test'},guid:'private-message-id'}]:[]});
+  });
+  const groups=[{guid:'any;+;group#1',displayName:'FRQ',originalROWID:765,style:43,participants:[{address:'private@example.test'}]},{guid:'any;+;group/2',displayName:'FRQ',originalROWID:762,style:43},{guid:'any;+;group3',displayName:'FRQ',originalROWID:728,style:43},{guid:'any;-;direct-address',displayName:'FRQ',style:45}];
+  const report=await groupActivityReport(groups,bb);
+  assert.equal(calls.length,3);
+  assert.deepEqual(calls.map(c=>decodeURIComponent(c.url.pathname)),groups.slice(0,3).map(g=>'/api/v1/chat/'+g.guid+'/message'));
+  for(const {url,options} of calls){assert.equal(options.method,'GET');assert.equal(options.body,undefined);assert.equal(url.searchParams.get('limit'),'1');assert.equal(url.searchParams.get('sort'),'DESC');}
+  assert.match(report,/Chat ID 765 \| FRQ/);assert.match(report,/Chat ID 762 \| FRQ.*No stored messages/);assert.match(report,/Chat ID 728 \| FRQ.*Lookup failed/);
+  assert.ok(report.includes(new Date(timestamp).toLocaleString()));
+  for(const secret of ['private body','private@example.test','private-message-id','test-password','group#1','direct-address']) assert.ok(!report.includes(secret));
+  assert.match(await groupActivityReport([],bb),/No matching/);assert.equal(calls.length,3);
+ });
+ await check('Unreadable activity timestamps remain errors instead of looking like current or empty chats',async()=>{
+  for(const data of [{},[{dateCreated:null}],[{dateCreated:'not-a-date'}],[{dateCreated:9e20}]]){
+   const bb=new BlueBubbles('http://127.0.0.1:1234','test',async()=>Response.json({status:200,data}));
+   await assert.rejects(bb.lastActivity('any;+;test'));
+  }
+ });
  await check('Chat discovery preserves unsupported services and paginates to existing iMessage conversations',async()=>{
   const firstPage=Array.from({length:100},(_,i)=>({guid:`SMS;-;phone-${i}`,participants:[]}));
   const lastPage=[{guid:'iMessage;-;usman@example.test',participants:[{address:'usman@example.test'}]}, {guid:'iMessage;+;private-group-id',displayName:'FRQ',participants:[{},{}]}, {guid:'any;-;private-address'}];

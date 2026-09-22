@@ -107,6 +107,8 @@ If Messages shows those chats but setup cannot find them, run `npm run imessage:
 
 The setup wizard and sender also support the native `any` chat identifiers returned by Mac Messages, preserving the chosen conversation instead of rewriting its ID. Search by name or phone/email, verify the participants, and choose the exact chat number; duplicate FRQ groups are kept separate. Updating this Mac helper does not require redeploying Cloudflare.
 
+If multiple FRQ entries have identical members, `npm run imessage:groups` compares their latest-message timestamps and Chat IDs without sending messages or printing message content. Run it in a second Terminal window while setup stays open, then match the intended Chat ID to the setup list.
+
 See [web/README.md](web/README.md) for Cloudflare setup, deployment, PIN management, and verification commands.
 
 Group results rotate through owner-approved win jokes and separate draw phrases for every pairing, while keeping the winner and head-to-head record accurate. Phrase selection stays consistent when a notification is retried.

@@ -28,6 +28,16 @@ export class BlueBubbles {
     // instead of reporting that existing conversations do not exist.
     return found;
   }
+  async lastActivity(chatGuid) {
+    const messages = await this.request('chat/'+encodeURIComponent(chatGuid)+'/message?limit=1&sort=DESC', undefined, 10000);
+    if (!Array.isArray(messages)) throw new Error('Could not read the last activity from BlueBubbles.');
+    if (!messages.length) return null;
+    // The API returns a message object; retain only its timestamp, never its
+    // text, sender, attachments, or message identifier.
+    const date = messages[0]?.dateCreated;
+    if (typeof date !== 'number' || !Number.isFinite(date) || date <= 0 || Number.isNaN(new Date(date).getTime())) throw new Error('BlueBubbles returned no usable message timestamp.');
+    return date;
+  }
   text(chatGuid, message, tempGuid) { return this.request('message/text', { chatGuid, message, tempGuid, method: 'apple-script' }); }
   image(chatGuid, png, tempGuid) {
     const body = new FormData(); body.set('chatGuid', chatGuid); body.set('tempGuid', tempGuid); body.set('method', 'apple-script'); body.set('name', 'rival-room-result.png'); body.set('attachment', new Blob([png], { type: 'image/png' }), 'rival-room-result.png');
