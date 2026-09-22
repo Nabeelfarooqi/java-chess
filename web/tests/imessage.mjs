@@ -27,12 +27,12 @@ try {
   }
   writeFileSync(new URL('../.test-build/winner-card.png',import.meta.url),await winnerCard(result));
  });
- await check('Result delivery routes both text and image to the selected group and journals completed parts',async()=>{
+ await check('Result delivery sends only text to the selected group and never renders or sends an image',async()=>{
   const journal=new Journal(directory,config.site),calls=[],acks=[];
   const bb={text:async(...args)=>calls.push(['text',...args]),image:async(...args)=>calls.push(['image',...args])};
-  assert.equal(await deliver(job,config,{bb,post:async body=>acks.push(body),render:async()=>Buffer.from('png'),journal}),'sent');
-  assert.deepEqual(calls.map(c=>c.slice(0,2)),[['text',config.groupChatGuid],['image',config.groupChatGuid]]);assert.equal(acks[0].status,'sent');
-  await deliver({...job,attempts:2},config,{bb,post:async()=>{},render:async()=>{throw Error('must not render again')},journal});assert.equal(calls.length,2);
+  assert.equal(await deliver(job,config,{bb,post:async body=>acks.push(body),render:async()=>{throw Error('Images are paused')},journal}),'sent');
+  assert.deepEqual(calls.map(c=>c.slice(0,2)),[['text',config.groupChatGuid]]);assert.equal(acks[0].status,'sent');
+  await deliver({...job,attempts:2},config,{bb,post:async()=>{},render:async()=>{throw Error('must not render again')},journal});assert.equal(calls.length,1);
   assert.equal(statSync(journal.path(job.id)).mode&0o777,0o600);
  });
  await check('A challenge goes only to its recipient DM, never to the group',async()=>{
@@ -51,7 +51,14 @@ try {
   const journal=new Journal(directory,config.site);let sends=0;const options={bb:{text:async()=>sends++,image:async()=>sends++},render:async()=>Buffer.from('png'),journal};
   const event={...job,id:'ack-outage'};
   await assert.rejects(deliver(event,config,{...options,post:async()=>{throw Error('offline')}}));
-  await deliver({...event,attempts:2},config,{...options,post:async()=>{}});assert.equal(sends,2);
+  await deliver({...event,attempts:2},config,{...options,post:async()=>{}});assert.equal(sends,1);
+ });
+ await check('An older confirmed result text is not repeated and its unfinished image stays paused',async()=>{
+  const journal=new Journal(directory,config.site),acks=[];const event={...job,id:'old-image'};
+  journal.put(event.id,{chatGuid:config.groupChatGuid,parts:{text:{status:'done'},image:{status:'sending'}}});
+  const fail=async()=>{throw Error('must not send any part')};
+  assert.equal(await deliver({...event,attempts:2},config,{bb:{text:fail,image:fail},post:async b=>acks.push(b),render:fail,journal}),'sent');
+  assert.equal(acks[0].status,'sent');
  });
  await check('Missing recipients and changed destinations never send to a guessed chat',async()=>{
   const journal=new Journal(directory,config.site);const options={bb:{text:async()=>{throw Error('must not send')}},post:async()=>{},render:async()=>Buffer.from('png'),journal};

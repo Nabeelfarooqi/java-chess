@@ -16,7 +16,7 @@ A private chess club that accompanies the Java desktop game. Open the same link,
 - PIN-linked characters: Walan’s green room and Gud’s red room, with their supplied portraits, themed board halves, and character kings. Other rivals keep their own names and neutral artwork.
 - Personal display names. One PIN belongs to each player; do not share your own PIN.
 
-Optional iMessage notifications use BlueBubbles on your Mac: challenges go to the chosen rival’s direct chat, and finished games send a result plus a character PNG to your existing group. They stay off until you explicitly complete setup and run the sender. See [iMessage setup](IMESSAGE_SETUP.md).
+Optional iMessage notifications use BlueBubbles on your Mac: challenge links go to the chosen rival’s direct chat, and finished games send a text result with the updated pair record to your existing group. Images and memes are paused. Notifications stay off until you explicitly complete setup and run the sender. See [iMessage setup](IMESSAGE_SETUP.md).
 
 ## Deploy to your own Cloudflare account
 
@@ -112,7 +112,11 @@ These are one-way salted PBKDF2 hashes, **not readable codes**. The command deri
 
 Follow [IMESSAGE_SETUP.md](IMESSAGE_SETUP.md) after deployment. The Mac sender pulls authenticated events from Cloudflare and talks only to a local BlueBubbles server. The chess site never receives your BlueBubbles password or contacts. This requires a Mac online with Messages, BlueBubbles, and the Terminal sender running; the website and games continue working without it.
 
-A new challenge sends the challenger’s name, time control, and site link to the opponent’s mapped direct chat. A finished game sends text and a PNG with both characters, winner/draw, and the pair’s score to one chosen existing group. Gud remains Usman, Walan remains Nabeel, and Saif remains separate. This integration sends through the Apple account signed into Messages on the Mac. It does not create a separate bot identity.
+A new challenge sends the challenger’s name, time control, and site link privately to the opponent’s mapped direct chat. A finished game sends one text announcement to the chosen existing group: who beat whom (or drew), their updated head-to-head wins and draws, and the time control/result reason. Messages use **Nabeel** for the saved Walan identity and **Usman** for Gud; site names and PIN ownership stay unchanged. The group result contains no site link. Images, result cards, and meme pools are paused until the owner chooses to enable them later. No image is rendered or attached by the sender, including when processing an older queued result.
+
+The pair record includes the announced game and earlier finished games between those same two players, regardless of their colors. Other opponents' results are excluded. A queued announcement uses the record as of that game's finish time. Draws are listed separately from wins.
+
+For this club, map **Gud to Usman's direct conversation**, **Saif to Saif's direct conversation**, and select **FRQ** as the results group. Check the listed participants before saving; the code never guesses chat destinations from a name. Walan remains Nabeel and can skip self-notifications. This integration sends through the Apple account signed into Messages on the Mac. It does not create a separate bot identity.
 
 The queue is disabled by default and does not announce historical games. Cancelled, accepted, or expired challenges are skipped before delivery. Results wait while the Mac is offline. Database triggers enqueue each event with the saved game transaction; a lease and a local delivery journal prevent routine reconnects from resending confirmed parts. If BlueBubbles might have sent a message but did not confirm it, the event pauses for manual review instead of being blindly retried. No external messaging system can promise exactly-once delivery across every interruption.
 

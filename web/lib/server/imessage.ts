@@ -5,6 +5,9 @@ import type { Game, Player } from '../game';
 type JobRow = { id: string; game_id: string; kind: 'challenge' | 'result'; status: string; created_at: number; lease_token: string; attempts: number };
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
 function same(a: string, b: string) { if (a.length !== b.length) return false; let diff = 0; for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i); return diff === 0; }
+// Message names follow saved identities; the site's character names stay unchanged.
+function messageName(player: Player) { return player.id === 'one' ? 'Nabeel' : player.id === 'two' ? 'Saif' : player.character === 'gud' ? 'Usman' : player.name; }
+const count = (value: number, noun: string) => `${value} ${noun}${value === 1 ? '' : 's'}`;
 export async function notificationPayload(db: D1Database, job: JobRow, origin: string) {
     const game = await new Store(db).get(job.game_id);
     if (!game || (job.kind === 'challenge' && (game.status !== 'pending' || game.createdAt + 15 * 60000 <= Date.now()))) return null;
@@ -15,7 +18,7 @@ export async function notificationPayload(db: D1Database, job: JobRow, origin: s
     const common = { id: job.id, kind: job.kind, gameId: game.id, leaseToken: job.lease_token, attempts: job.attempts };
     if (job.kind === 'challenge') {
         const challenger = game.challenger === white.id ? white : black, rival = challenger.id === white.id ? black : white;
-        return { ...common, recipientId: rival.id, text: `${challenger.name} challenged you to ${time} chess.\nPlay: ${origin}/` };
+        return { ...common, recipientId: rival.id, text: `${messageName(challenger)} challenged you to ${time} chess.\nPlay: ${origin}/` };
     }
     if (game.status !== 'finished') return null;
     const score = await db.prepare(`SELECT
@@ -27,9 +30,12 @@ export async function notificationPayload(db: D1Database, job: JobRow, origin: s
       OR (json_extract(state,'$.white')=? AND json_extract(state,'$.black')=?))`)
       .bind(white.id, black.id, job.created_at, white.id, black.id, black.id, white.id).first<{ whiteWins: number; blackWins: number; draws: number }>();
     const winner = game.winner === white.id ? white : black, loser = winner.id === white.id ? black : white;
-    const headline = game.winner ? `${winner.name} beat ${loser.name}!` : `${white.name} and ${black.name} drew.`;
+    const headline = game.winner ? `${messageName(winner)} beat ${messageName(loser)}!` : `${messageName(white)} and ${messageName(black)} drew.`;
     const result = { white, black, winnerId: game.winner, time, reason: game.reason, score: score || { whiteWins: 0, blackWins: 0, draws: 0 } };
-    return { ...common, recipientId: null, result, text: `${headline}\n${time} · ${game.reason}\nHead-to-head: ${white.name} ${result.score.whiteWins}–${result.score.blackWins} ${black.name} · ${result.score.draws} draws\n${origin}/` };
+    const first = game.winner ? winner : white, second = first.id === white.id ? black : white;
+    const firstWins = first.id === white.id ? result.score.whiteWins : result.score.blackWins;
+    const secondWins = first.id === white.id ? result.score.blackWins : result.score.whiteWins;
+    return { ...common, recipientId: null, result, text: `${headline}\nHead-to-head: ${messageName(first)} ${count(firstWins, 'win')} · ${messageName(second)} ${count(secondWins, 'win')} · ${count(result.score.draws, 'draw')}\n${time} · ${game.reason}` };
 }
 export async function handleBridge(req: Request, env: LiveEnv, ctx?: ExecutionContext): Promise<Response> {
     if (req.method !== 'POST') return json({ error: 'POST required' }, 405);

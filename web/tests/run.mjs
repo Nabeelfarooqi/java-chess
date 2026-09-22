@@ -268,7 +268,8 @@ await check('A committed challenge queues once and concurrent bridge claims cann
  assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM notification_outbox').get().n,1);
  const claims=await Promise.all([bridge({action:'claim'}),bridge({action:'claim'})]);const bodies=await Promise.all(claims.map(r=>r.json()));
  const jobs=bodies.map(b=>b.job).filter(Boolean);assert.equal(jobs.length,1);firstJob=jobs[0];
- assert.equal(firstJob.recipientId,'two');assert.equal(firstJob.kind,'challenge');assert.match(firstJob.text,/5\+0 chess/);assert.ok(!JSON.stringify(firstJob).includes('pin_hash'));
+ assert.equal(firstJob.recipientId,'two');assert.equal(firstJob.kind,'challenge');assert.match(firstJob.text,/5\+0 chess/);assert.match(firstJob.text,/Play: https:\/\/rival.test\//);assert.ok(!JSON.stringify(firstJob).includes('pin_hash'));
+ assert.match(firstJob.text,/^Nabeel challenged you/);
  assert.equal((await bridge({action:'ack',id:firstJob.id,leaseToken:'wrong',status:'sent'})).status,409);
  assert.equal((await bridge({action:'ack',id:firstJob.id,leaseToken:firstJob.leaseToken,status:'sent'})).status,200);
  assert.equal((await (await bridge({action:'claim'})).json()).job,null);
@@ -281,10 +282,14 @@ await check('A finished game queues one result with both identities, characters,
  const job=(await (await bridge({action:'claim'})).json()).job;
  assert.equal(job.kind,'result');assert.equal(job.result.winnerId,'two');assert.equal(job.result.white.character,'walan');assert.equal(job.result.black.character,null);
  assert.ok(job.result.score.blackWins>=1);assert.equal(job.result.reason,'Resignation');
+ assert.match(job.text,/^Saif beat Nabeel!\nHead-to-head:/);assert.doesNotMatch(job.text,/https?:\/\/|Walan|Gud/);assert.equal(job.recipientId,null);
+ const record=(await reopened.room('one')).headToHead.two;
+ assert.deepEqual(job.result.score,{whiteWins:record.wins,blackWins:record.losses,draws:record.draws});
+ assert.match(job.text,new RegExp('Saif '+record.losses+' wins? · Nabeel '+record.wins+' wins? · '+record.draws+' draws?'));
  await bridge({action:'ack',id:job.id,leaseToken:job.leaseToken,status:'needs_review',detail:'test uncertain'});
  assert.equal((await (await bridge({action:'claim'})).json()).job,null);
  assert.equal((await (await bridge({action:'retry',id:job.id})).json()).updated,true);
- const again=(await (await bridge({action:'claim'})).json()).job;assert.equal(again.attempts,1);
+ const again=(await (await bridge({action:'claim'})).json()).job;assert.equal(again.attempts,1);assert.equal(again.text,job.text);
  await bridge({action:'ack',id:again.id,leaseToken:again.leaseToken,status:'sent'});
 });
 await check('Cancelled challenges are skipped and never create winner announcements',async()=>{
@@ -297,10 +302,38 @@ await check('The bridge settles expired clocks without an open browser and persi
  let game=await reopened.create('one',usman.id,1,0);game=await reopened.act(usman.id,'accept',{gameId:game.id,version:game.version});
  await reopened.save(game,{...game,whiteMs:1,blackMs:1,turnAt:Date.now()-100});
  const job=(await (await bridge({action:'claim'})).json()).job;assert.equal(job.kind,'result');assert.equal(job.result.reason,'Time expired');
+ assert.match(job.text,/Usman/);assert.match(job.text,/Nabeel/);assert.doesNotMatch(job.text,/Walan|Gud|Saif/);
+ const record=(await reopened.room(job.result.white.id)).headToHead[job.result.black.id];
+ assert.deepEqual(job.result.score,{whiteWins:record.wins,blackWins:record.losses,draws:record.draws});
  sql.prepare('UPDATE notification_outbox SET lease_until=0 WHERE id=?').run(job.id);
  const recovered=(await (await bridge({action:'claim'})).json()).job;assert.equal(recovered.id,job.id);assert.equal(recovered.attempts,2);assert.notEqual(recovered.leaseToken,job.leaseToken);
  assert.equal((await bridge({action:'ack',id:job.id,leaseToken:job.leaseToken,status:'sent'})).status,409);
  await bridge({action:'ack',id:recovered.id,leaseToken:recovered.leaseToken,status:'sent'});
+});
+await check('Draw announcements name the players and update only their pair record',async()=>{
+ let game=await reopened.create('one','two',5,0);
+ game=await reopened.act('two','accept',{gameId:game.id,version:game.version});
+ game=await reopened.act('one','offerDraw',{gameId:game.id,version:game.version});
+ game=await reopened.act('two','acceptDraw',{gameId:game.id,version:game.version});
+ const job=(await (await bridge({action:'claim'})).json()).job;
+ assert.equal(job.kind,'result');assert.equal(job.result.winnerId,null);assert.match(job.text,/ drew\./);
+ assert.match(job.text,/Nabeel/);assert.match(job.text,/Saif/);assert.doesNotMatch(job.text,/ beat |https?:\/\/|Walan|Gud|Usman/);
+ const record=(await reopened.room(job.result.white.id)).headToHead[job.result.black.id];
+ assert.deepEqual(job.result.score,{whiteWins:record.wins,blackWins:record.losses,draws:record.draws});
+ await bridge({action:'ack',id:job.id,leaseToken:job.leaseToken,status:'sent'});
+});
+await check('Usman versus Saif announces the real winner without including their games against Nabeel',async()=>{
+ let game=await reopened.create(usman.id,'two',5,0);
+ game=await reopened.act('two','accept',{gameId:game.id,version:game.version});
+ game=await reopened.act('two','resign',{gameId:game.id,version:game.version});
+ const job=(await (await bridge({action:'claim'})).json()).job;
+ assert.equal(job.kind,'result');assert.match(job.text,/^Usman beat Saif!/);assert.doesNotMatch(job.text,/Nabeel|Walan|Gud|https?:\/\//);
+ const record=(await reopened.room(usman.id)).headToHead.two;
+ const wins=job.result.white.id===usman.id?job.result.score.whiteWins:job.result.score.blackWins;
+ const losses=job.result.white.id===usman.id?job.result.score.blackWins:job.result.score.whiteWins;
+ assert.deepEqual({wins,losses,draws:job.result.score.draws},record);
+ assert.match(job.text,new RegExp('Usman '+record.wins+' wins? · Saif '+record.losses+' wins? · '+record.draws+' draws?'));
+ await bridge({action:'ack',id:job.id,leaseToken:job.leaseToken,status:'sent'});
 });
 
 sql.close();console.log(`\n${passed} integration checks passed.`);

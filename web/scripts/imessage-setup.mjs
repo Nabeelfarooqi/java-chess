@@ -31,10 +31,11 @@ try {
   const players = query('SELECT id,name,character FROM players ORDER BY name');
   const targets = {}, labels = [];
   for (const player of players) {
-    const chosen = await choose(chats.filter(c => c.guid.startsWith('iMessage;-;')), 'Challenge messages for '+player.name+' (select their exact direct chat)', true);
+    const contactName = player.id === 'one' ? 'Nabeel' : player.id === 'two' ? 'Saif' : player.character === 'gud' ? 'Usman' : player.name;
+    const chosen = await choose(chats.filter(c => c.guid.startsWith('iMessage;-;')), 'Private challenge links for '+player.name+' (select '+contactName+"'s direct chat)", true);
     if (chosen) { targets[player.id] = chosen.guid; labels.push(player.name+' → '+chatLabel(chosen)); }
   }
-  const group = await choose(chats.filter(c => c.guid.startsWith('iMessage;+;')), 'Winner/result announcements (select your existing group chat)');
+  const group = await choose(chats.filter(c => c.guid.startsWith('iMessage;+;')), 'Results and updated head-to-head records (select FRQ and verify its members)');
   console.log('\nConfirm destinations:\n'+labels.join('\n')+'\nResults → '+chatLabel(group));
   console.log('Starting the sender later will send as the Apple account signed into Messages on this Mac.');
   if ((await question('Type SAVE to use these destinations: ')) !== 'SAVE') throw new Error('Cancelled. Nothing saved.');

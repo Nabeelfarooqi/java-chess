@@ -25,7 +25,7 @@ export function cloudBridge(config, fetcher = fetch) {
     return response.json();
   };
 }
-export async function deliver(job, config, { bb, post, render, journal }) {
+export async function deliver(job, config, { bb, post, journal }) {
   if (!job || !['challenge', 'result'].includes(job.kind) || typeof job.id !== 'string' || typeof job.text !== 'string') throw new Error('Invalid chess event.');
   const ack = (status, detail = '') => post({ action: 'ack', id: job.id, leaseToken: job.leaseToken, status, detail });
   const chatGuid = job.kind === 'result' ? config.groupChatGuid : config.targets[job.recipientId];
@@ -33,23 +33,19 @@ export async function deliver(job, config, { bb, post, render, journal }) {
   if (!chatGuid.startsWith(job.kind === 'result' ? 'iMessage;+;' : 'iMessage;-;')) { await ack('needs_review', 'Destination must be an existing iMessage group or direct chat'); return 'needs_review'; }
   const previous = journal.get(job.id);
   const state = previous || { chatGuid, parts: {} };
-  if ((job.attempts > 1 && !previous) || state.chatGuid !== chatGuid || Object.values(state.parts).some(part => part.status === 'sending')) {
+  if ((job.attempts > 1 && !previous) || state.chatGuid !== chatGuid || state.parts.text?.status === 'sending') {
     await ack('needs_review', 'Check Messages before retrying: previous delivery could not be confirmed'); return 'needs_review';
   }
-  let png;
-  if (job.kind === 'result' && state.parts.image?.status !== 'done') {
-    try { png = await render(job.result); } catch { await ack('needs_review', 'Could not create the winner image'); return 'needs_review'; }
-  }
-  for (const part of job.kind === 'result' ? ['text', 'image'] : ['text']) {
-    if (state.parts[part]?.status === 'done') continue;
-    const tempGuid = randomUUID(); state.parts[part] = { status: 'sending', tempGuid }; journal.put(job.id, state);
+  // Text only until the owner chooses the meme pools. Keep the delivery journal
+  // compatible with older entries, including an already-confirmed result text.
+  if (state.parts.text?.status !== 'done') {
+    const tempGuid = randomUUID(); state.parts.text = { status: 'sending', tempGuid }; journal.put(job.id, state);
     try {
-      if (part === 'text') await bb.text(chatGuid, job.text, tempGuid);
-      else await bb.image(chatGuid, png, tempGuid);
+      await bb.text(chatGuid, job.text, tempGuid);
     } catch {
-      await ack('needs_review', 'BlueBubbles did not confirm '+part+' delivery. Check Messages before retrying.'); return 'needs_review';
+      await ack('needs_review', 'BlueBubbles did not confirm text delivery. Check Messages before retrying.'); return 'needs_review';
     }
-    state.parts[part].status = 'done'; journal.put(job.id, state);
+    state.parts.text.status = 'done'; journal.put(job.id, state);
   }
   // An acknowledgement failure can be retried without sending completed parts again.
   await ack('sent'); return 'sent';

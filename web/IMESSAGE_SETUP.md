@@ -31,7 +31,7 @@ Each command asks for six digits twice, invisibly. The code is saved as a hash a
 1. Open **Messages** and sign into the Apple account you want to send from. Ensure your existing iMessage conversations with Gud and Saif, plus the intended group chat, appear there. Send any initial messages yourself if those conversations do not exist yet.
 2. Install **BlueBubbles Server** using its [official installation guide](https://docs.bluebubbles.app/server/installation-guides/manual-setup) and [official releases](https://github.com/BlueBubblesApp/bluebubbles-server/releases). Follow its macOS permissions prompts, including access needed to read the Messages database and control Messages.
 3. Set and save a BlueBubbles server password. Keep the server running. Note its local HTTP port; the usual local URL is `http://127.0.0.1:1234`.
-4. This sender uses the basic AppleScript API for text and PNG attachments to **existing** chats. It does not require BlueBubbles Private API features. A public tunnel, port forwarding, and a BlueBubbles phone client are unnecessary for this integration because both the sender and BlueBubbles run on the same Mac. Follow your installed BlueBubbles version's setup screens for any additional server configuration.
+4. This sender uses the basic AppleScript API for text messages to **existing** chats. Images and memes are paused. It does not require BlueBubbles Private API features. A public tunnel, port forwarding, and a BlueBubbles phone client are unnecessary for this integration because both the sender and BlueBubbles run on the same Mac. Follow your installed BlueBubbles version's setup screens for any additional server configuration.
 
 Use an all-iMessage group for this version; SMS/RCS destinations are not supported by the setup wizard. See the [BlueBubbles FAQ](https://bluebubbles.app/faq/) for supported macOS versions and service limitations.
 
@@ -48,7 +48,7 @@ The wizard asks for:
 - Your chess site's HTTPS address, such as `https://rival-room.nfarooqi090.workers.dev`.
 - The local BlueBubbles URL and password (hidden while typed).
 - Each player's exact existing **direct chat**, shown with participant addresses. Map Gud to Usman's conversation and Saif to Saif's. You can press Enter to skip Walan if you do not need messages to yourself.
-- The exact existing **group chat** for game results.
+- The exact existing **group chat** for game results: choose **FRQ**, checking its participant addresses against your intended group.
 
 Review the displayed names and participant addresses, then type `SAVE`. The wizard stores the destinations on the Mac, installs a random bridge-token hash as a Worker secret, verifies the specified site, and enables future notifications. It sends no test messages. Starting the sender after a gap can deliver results queued since setup.
 
@@ -62,7 +62,17 @@ npm run imessage:start
 
 Keep this Terminal window and BlueBubbles running. The sender checks about every ten seconds. It requests protection from idle sleep while running, but shutting down, closing the laptop lid, losing internet, or quitting Messages/BlueBubbles can interrupt delivery. **Ctrl+C stops the sender.** This release does not install an automatic background/login service. After restarting the Mac, start BlueBubbles and run the command again.
 
-Once you are ready for real messages, challenge Gud or Saif from the site. Their configured DM receives the challenger name, time control, and link. Finish the game to send the result text and PNG to the selected group. The image includes Walan/Gud artwork when those identities play, a neutral initial for Saif or another player, and the pair's wins/draws as of that result.
+Once you are ready for real messages, challenge Gud or Saif from the site. Their configured DM receives the challenger name, time control, and link. Gud's destination is Usman's private conversation; Saif's is Saif's. Finish the game to send one text announcement to FRQ, selected above. Group announcements have no site link or image. Messages use Nabeel for Walan and Usman for Gud, without renaming the site's characters or changing their PINs or records.
+
+Example group announcement (illustrative scores):
+
+```text
+Usman beat Nabeel!
+Head-to-head: Usman 4 wins · Nabeel 3 wins · 1 draw
+5+0 · Checkmate
+```
+
+Draws say the two players drew and update their draw total. The record counts only that pair's finished games, including this result, regardless of colors. Delayed announcements use the pair record as of that game's finish time. Images and meme pools are on hold; the owner can choose them later. When installing this text-only update, stop any older sender with Ctrl+C, pull/deploy, and restart it so the Mac also runs the new delivery code. Existing saved destinations remain valid.
 
 The game works even when the sender is stopped. Finished-game announcements queue for later. Challenges already accepted, cancelled, or older than 15 minutes are skipped when checked for delivery. Games finished before notifications were enabled are not backfilled. An active game that finishes after setup can produce a result.
 
@@ -74,7 +84,7 @@ From another Terminal window in `web/`:
 npm run imessage:status
 ```
 
-The latest 30 events show `pending`, `leased` (being processed), `sent`, `skipped`, or `needs_review`. A lease expires after five minutes if the sender stops abruptly. Confirmed text/image parts are journaled locally and are not sent again merely because Cloudflare's acknowledgement failed.
+The latest 30 events show `pending`, `leased` (being processed), `sent`, `skipped`, or `needs_review`. A lease expires after five minutes if the sender stops abruptly. Confirmed texts are journaled locally and are not sent again merely because Cloudflare's acknowledgement failed. Older confirmed result texts remain complete; unfinished image parts are no longer sent.
 
 If an event says `needs_review`, first inspect the intended conversation in Messages. BlueBubbles can time out after a send, so an automatic retry could duplicate it. Stop the sender with Ctrl+C. If the unconfirmed message is missing and you want to retry, copy the exact event ID from status:
 

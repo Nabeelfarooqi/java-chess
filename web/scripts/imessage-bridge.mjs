@@ -3,7 +3,6 @@ import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { BlueBubbles } from './bluebubbles-client.mjs';
 import { Journal, cloudBridge, deliver } from './imessage-core.mjs';
-import { winnerCard } from './winner-card.mjs';
 import { question } from './terminal-input.mjs';
 const directory = resolve('.imessage'), configFile = resolve(directory, 'config.json');
 let lockHeld = false;
@@ -36,13 +35,13 @@ try {
     const bb = new BlueBubbles(config.blueBubblesUrl, config.blueBubblesPassword);
     let stopping = false; for (const signal of ['SIGINT','SIGTERM']) process.on(signal, () => { stopping = true; });
     const awake = process.platform === 'darwin' ? spawn('/usr/bin/caffeinate', ['-i', '-w', String(process.pid)], { stdio: 'ignore' }) : null;
-    console.log('iMessage sender running. New challenges go to the configured DMs; results and PNG cards go to the selected group. Ctrl+C stops it. Keep the Mac online and awake.');
+    console.log('iMessage sender running. Challenge links go privately to the configured DMs; text results and head-to-head records go to the selected group. Images are paused. Ctrl+C stops it. Keep the Mac online and awake.');
     let reported = '';
     try { while (!stopping) {
       try {
         await bb.ping(); // Do not claim jobs while the Mac's message server is offline.
         const { job } = await post({ action: 'claim' });
-        if (job) console.log(new Date().toLocaleTimeString(), job.kind, await deliver(job, config, { bb, post, render: winnerCard, journal }), job.id);
+        if (job) console.log(new Date().toLocaleTimeString(), job.kind, await deliver(job, config, { bb, post, journal }), job.id);
         reported = '';
       } catch (error) { if (reported !== error.message) console.error(error.message); reported = error.message; }
       for (let second = 0; second < 10 && !stopping; second++) await new Promise(resolve => setTimeout(resolve, 1000));
