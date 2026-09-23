@@ -117,6 +117,10 @@ Captured pieces appear beneath the player who took them, grouped by piece type w
 
 Walan, Gud, and Saif’s drawings fill their king pieces, with a small white/black SVG king badge to identify their chess color on phones and desktops.
 
+**Signed-in players can now use Watch games in the header.** Walan, Gud, Saif, and other players can watch the others’ live boards, clocks, captures, and final results without changing PINs or signing out. Back to playing returns to the same account. Watching closes when a personal challenge arrives and is unavailable during your own pending/active game. The separate guest spectator PIN remains available.
+
+**Capture premoves now include recaptures.** Queue onto an enemy piece, an empty pawn-capture square, or your own piece’s square before the opponent captures it. The next authoritative position must make the move legal; otherwise it cancels. Tap and drag both work, and promotion choices and castling are preserved.
+
 Spectators can use a separate shared six-digit PIN via **Watch as spectator** on the opening page. After deploying, run `npm run cloudflare:spectator-pin` in `web` to set it, or add `-- --disable` to revoke access. Viewers can choose live games and watch the clocks/captures, with no player controls or score changes. Player PINs and accounts stay separate. See the [spectator setup guide](web/README.md#spectator-pin).
 
 Choose an easier six-digit PIN for any player with `cloudflare:set-pin`, preserving their identity and scores. Optional [BlueBubbles iMessage notifications](web/IMESSAGE_SETUP.md) send challenge links privately to a rival and text results with updated head-to-head records to your selected group through your Mac. Messages use Nabeel for Walan and Usman for Gud. Map Gud to Usman's direct conversation, Saif to Saif's, and choose FRQ for group results during setup. Images start paused and can be enabled from your chosen local meme pools. Notifications stay off until configured; the chess site runs independently of the Mac.

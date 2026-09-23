@@ -13,7 +13,9 @@ import { CapturedMaterial } from './captured-material';
 import { PlayerClock } from './player-clock';
 
 const noop = () => {};
-export default function SpectatorRoom() {
+export default function SpectatorRoom({ playerView = false, onClose }: { playerView?: boolean; onClose?: () => void }) {
+    const endpoint = playerView ? '/api/room?watch=1' : '/api/spectate';
+    const Container = playerView ? 'section' : 'main';
     const [data, setData] = useState<Snapshot | null>(null), [unlocked, setUnlocked] = useState(false), [ready, setReady] = useState(false);
     const [selectedId, setSelectedId] = useState(''), [orientation, setOrientation] = useState<Color>('w');
     const [pin, setPin] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState(''), [online, setOnline] = useState(true), [offset, setOffset] = useState(0);
@@ -23,9 +25,10 @@ export default function SpectatorRoom() {
         let stopped = false, timer: ReturnType<typeof setTimeout>;
         const controller = new AbortController(), current = ++epoch.current;
         async function poll() {
+            if (document.hidden) { timer = setTimeout(poll, 10000); return; }
             const started = Date.now();
             try {
-                const response = await fetch('/api/spectate' + (selectedId ? '?game=' + encodeURIComponent(selectedId) : ''), {
+                const response = await fetch(endpoint + (selectedId ? (playerView ? '&game=' : '?game=') + encodeURIComponent(selectedId) : ''), {
                     credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
                 });
                 const body = await response.json() as Snapshot & { error?: string };
@@ -44,7 +47,7 @@ export default function SpectatorRoom() {
         }
         void poll();
         return () => { stopped = true; controller.abort(); clearTimeout(timer); };
-    }, [unlocked, selectedId, refreshKey]);
+    }, [unlocked, selectedId, refreshKey, endpoint, playerView]);
     useEffect(() => {
         const resume = () => { if (!document.hidden) setRefreshKey(value => value + 1); };
         window.addEventListener('online', resume); document.addEventListener('visibilitychange', resume);
@@ -65,7 +68,7 @@ export default function SpectatorRoom() {
         finally { setBusy(false); setRefreshKey(value => value + 1); }
     }
 
-    const game = data?.games.find(item => item.id === selectedId) || data?.selectedGame || data?.games[0] || null;
+    const game = data?.games.find(item => item.id === selectedId) || (data?.selectedGame?.id === selectedId ? data.selectedGame : null) || (!selectedId ? data?.games[0] : null) || null;
     const { chess, lastMove, material } = useMemo(() => {
         const chess = game ? replay(game) : new Chess();
         return { chess, lastMove: chess.history({ verbose: true }).at(-1) || null, material: materialSummary(chess) };
@@ -81,12 +84,13 @@ export default function SpectatorRoom() {
             <CapturedMaterial color={color} name={person?.name || 'Player'} material={material}/>
         </div>;
     }
-    if (!ready) return <main className="loading-room"><Eye/><p>Opening spectator view…</p></main>;
+    if (!ready) return <div className="watch-loading" role="status"><Eye/><p>Loading live games…</p>{playerView && <Button onClick={onClose}>Back to playing</Button>}</div>;
+    if (!unlocked && playerView) return <section className="spectator-empty"><Eye size={36}/><h2>{error ? 'Could not load games.' : 'Your session has expired.'}</h2><p>{error || 'Return to the room and enter your player PIN again.'}</p><Button onClick={onClose}>Back to playing</Button></section>;
     if (!unlocked) return <main className="spectator-gate"><a className="spectator-back" href="/">← Player sign-in</a><Eye size={34}/><h1>Watch the rivalry.</h1><p>Enter the shared spectator code to watch live games.</p>
         <form className="gate" onSubmit={event => { event.preventDefault(); void access('login'); }}><label htmlFor="spectator-code">Spectator PIN</label><div className="code-row"><Input id="spectator-code" type="password" inputMode="numeric" autoComplete="off" placeholder="6-digit spectator code" maxLength={6} value={pin} onChange={event => setPin(event.target.value.replace(/\D/g, ''))}/><Button disabled={busy || pin.length !== 6} type="submit">{busy ? 'Opening…' : 'Watch games'}</Button></div>{error && <p className="error" role="alert">{error}</p>}<p className="muted">Watch only. Player PINs are used on the player sign-in page.</p></form>
     </main>;
-    return <main className={`club spectator-club ${game?.status === 'active' ? 'game-active' : ''}`}>
-        <header className="club-header"><div className="spectator-heading"><Eye size={22}/><div><strong>Spectator room</strong><p>Watch only · updates about every second</p></div></div><Button variant="ghost" aria-label="Lock spectator view" onClick={() => void access('logout')} disabled={busy}><LockKeyhole size={17}/><span>Lock</span></Button></header>
+    return <Container className={`club spectator-club ${game?.status === 'active' ? 'game-active' : ''}`}>
+        <header className="club-header"><div className="spectator-heading"><Eye size={22}/><div><strong>{playerView ? 'Watching the fellas' : 'Spectator room'}</strong><p>Watch only · updates about every second</p></div></div><Button variant="ghost" aria-label={playerView ? "Back to playing" : "Lock spectator view"} onClick={playerView ? onClose : () => void access('logout')} disabled={busy}>{!playerView && <LockKeyhole size={17}/>}<span>{playerView ? 'Back to playing' : 'Lock'}</span></Button></header>
         {error && <p className="connection-warning" role="alert">{online ? error : 'Connection interrupted. This board may be behind. Reconnecting…'}</p>}
         <section className="spectator-picker"><label htmlFor="watch-game">Choose a live game</label><select id="watch-game" value={game?.id || ''} onChange={event => setSelectedId(event.target.value)} disabled={!data?.games.length}>
             {!game && <option value="">Waiting for a game</option>}
@@ -96,7 +100,7 @@ export default function SpectatorRoom() {
         {game ? <section className="board-column">{playerRow(orientation === 'w' ? 'b' : 'w')}
             <ChessBoard whiteCharacter={player('w')?.character} blackCharacter={player('b')?.character} fen={game.fen} orientation={orientation} color={orientation} active={false} canMove={false} online={online} lastMove={lastMove} premove={null} onMove={noop} onCancel={noop}/>
             {playerRow(orientation)}<div className="board-tools"><span className="board-status" role="status">{game.status === 'finished' ? `${game.winner ? who(game.winner) + ' won' : 'Draw'} · ${game.reason}` : `${player(chess.turn())?.name || 'Player'}’s turn${chess.isCheck() ? ' · Check' : ''}`}</span><div className="board-buttons"><Button variant="ghost" size="icon" aria-label="Flip board" onClick={() => setOrientation(orientation === 'w' ? 'b' : 'w')}><ArrowDownUp size={18}/></Button></div></div>
-        </section> : <section className="spectator-empty"><Eye size={36}/><h2>No games in progress.</h2><p>A game will appear here once both players start playing.</p></section>}
-        <footer><a href="/">Back to playing</a><span>RIVAL ROOM · SPECTATOR</span></footer>
-    </main>;
+        </section> : <section className="spectator-empty"><Eye size={36}/><h2>{playerView ? 'No rivals playing right now.' : 'No games in progress.'}</h2><p>A game will appear here once both players start playing.</p></section>}
+        {!playerView && <footer><a href="/">Back to playing</a><span>RIVAL ROOM · SPECTATOR</span></footer>}
+    </Container>;
 }

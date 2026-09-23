@@ -17,7 +17,7 @@ export async function spectatorSession(db: D1Database, req: Request) {
         .bind(await digest(token), Date.now()).first();
 }
 
-async function view(db: D1Database, req: Request, env: LiveEnv, ctx?: ExecutionContext): Promise<SpectatorRoom> {
+export async function watchView(db: D1Database, req: Request, env: LiveEnv, ctx?: ExecutionContext, viewerId?: string): Promise<SpectatorRoom> {
     const gameId = new URL(req.url).searchParams.get('game');
     if (gameId && gameId.length > 64) throw new GameError('Invalid game.', 400);
     const store = new Store(db, game => { const task = broadcast(env, game).catch(() => {}); if (ctx) ctx.waitUntil(task); });
@@ -31,14 +31,16 @@ async function view(db: D1Database, req: Request, env: LiveEnv, ctx?: ExecutionC
         // As in a player's room, elapsed server clocks settle normally. Spectators
         // cannot submit moves, adjudicate results, or supply replacement game state.
         const game = await store.settle({ ...JSON.parse(row.state), version: row.version });
-        if (game?.status === 'active') games.push(game);
-        if (game?.id === gameId) selectedGame = game;
+        if (game && game.white !== viewerId && game.black !== viewerId) {
+            if (game.status === 'active') games.push(game);
+            if (game.id === gameId) selectedGame = game;
+        }
     }
     if (gameId && !selectedGame) {
         const game = await store.get(gameId);
         // Keep the selected board visible when its live game ends, without
         // exposing a club-wide history/export endpoint.
-        if (game?.status === 'finished') selectedGame = game;
+        if (game?.status === 'finished' && game.white !== viewerId && game.black !== viewerId) selectedGame = game;
     }
     return { games, selectedGame, players: roster.results as Player[], serverNow: Date.now() };
 }
@@ -49,7 +51,7 @@ export async function handleSpectator(req: Request, env: LiveEnv, ctx?: Executio
         if (!db) throw new GameError('The room is temporarily unavailable.', 503);
         if (req.method === 'GET') {
             if (!await spectatorSession(db, req)) return json({ locked: true }, 401);
-            return json(await view(db, req, env, ctx));
+            return json(await watchView(db, req, env, ctx));
         }
         if (req.method !== 'POST') return json({ error: 'Method not allowed.' }, 405, { Allow: 'GET, POST' });
         if (req.headers.get('origin') !== new URL(req.url).origin) throw new GameError('Use the spectator page to continue.', 403);

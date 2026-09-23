@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import { readFileSync, mkdirSync, readdirSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
-import { pbkdf2Sync } from 'node:crypto';
+import { createHash, pbkdf2Sync } from 'node:crypto';
 import { unstable_splitSqlQuery as splitSqlQuery } from 'wrangler';
 const wranglerRequire = createRequire(realpathSync(new URL('../node_modules/wrangler/package.json', import.meta.url)));
 const { Miniflare } = wranglerRequire('miniflare');
@@ -48,8 +48,16 @@ try {
  assert.equal((await pa).game.status,'active');await pb;
  const watched=await mf.dispatchFetch(origin+'/api/spectate?game='+g.id,{headers:{Cookie:watcher}});
  assert.equal((await watched.json()).selectedGame.id,g.id);
+ const playerWatchToken='e'.repeat(64),playerWatchHash=createHash('sha256').update(playerWatchToken).digest('hex');
+ await db.prepare("INSERT INTO players(id,name) VALUES('watching-player','Gud')").run();
+ await db.prepare('INSERT INTO sessions(token_hash,player_id,expires) VALUES(?,?,?)').bind(playerWatchHash,'watching-player',Date.now()+60000).run();
+ const playerViewer='rr_session='+playerWatchToken;
+ const playerWatched=await mf.dispatchFetch(origin+'/api/room?watch=1&game='+g.id,{headers:{Cookie:playerViewer}});
+ assert.equal(playerWatched.status,200);assert.equal((await playerWatched.json()).selectedGame.id,g.id);
+ assert.equal((await mf.dispatchFetch(origin+'/api/room?watch=1',{headers:{Cookie:watcher}})).status,401);
  await db.prepare('UPDATE spectator_settings SET pin_hash=NULL WHERE id=1').run();
  assert.equal((await mf.dispatchFetch(origin+'/api/spectate',{headers:{Cookie:watcher}})).status,401);
+ assert.equal((await mf.dispatchFetch(origin+'/api/room?watch=1',{headers:{Cookie:playerViewer}})).status,200);
 
  pa=message(a);pb=message(b);
  const moved=await post({action:'move',gameId:g.id,version:g.version,from:'e2',to:'e4',compact:true,moveId:'11111111-2222-3333-4444-555555555555'},one);g=(await moved.json()).game;

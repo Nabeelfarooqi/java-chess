@@ -264,6 +264,39 @@ await check('Premoves wait for the opponent, revalidate legality, and cannot cro
  const promotion={...game,fen:'7k/8/8/8/8/8/p7/7K b - - 0 1'};
  assert.equal(premoveReady(promotion,'two',{from:'a2',to:'a1',promotion:'n',gameId:game.id}),true);
 });
+await check('Capture premoves include friendly recapture squares for both colors and require a legal reply',()=>{
+ for(const [color,fen,from,to,reply] of [
+  ['w','4k3/8/8/8/1b6/2N5/3P4/4K3 b - - 0 1','d2','c3','Bxc3'],
+  ['b','4k3/3p4/2n5/1B6/8/8/8/4K3 w - - 0 1','d7','c6','Bxc6']
+ ]){
+  const chess=new Chess(fen),me=color==='w'?'one':'two';
+  const game={...createGame('one','two',5,0),status:'active',fen};
+  assert.ok(boardTargets(chess,from,color).includes(to));
+  const queued={...boardMove(chess,from,to,color),gameId:game.id};
+  assert.equal(premoveReady(game,me,queued),false);
+  const noCapture=new Chess(fen);noCapture.move(color==='w'?'Kf8':'Kf1');
+  assert.equal(premoveReady({...game,fen:noCapture.fen()},me,queued),false);
+  assert.equal(boardMove(noCapture,from,to,color),null,'friendly captures on your turn stay illegal');
+  chess.move(reply);assert.equal(premoveReady({...game,fen:chess.fen()},me,queued),true);
+  assert.equal(chess.move(queued).captured,'b');
+ }
+ const capture=new Chess('4k3/8/8/8/q7/8/8/R3K3 b - - 0 1');
+ const intent=boardMove(capture,'a1','a4','w');assert.deepEqual(intent,{from:'a1',to:'a4'});
+ capture.move('Kf8');assert.equal(capture.move(intent).captured,'q');
+});
+await check('Pawn capture premoves support en passant and promotion without bypassing checks',()=>{
+ const base={...createGame('one','two',5,0),status:'active'};
+ const chess=new Chess('4k3/3p4/8/4P3/8/8/8/4K3 b - - 0 1');
+ const intent=boardMove(chess,'e5','d6','w');assert.deepEqual(intent,{from:'e5',to:'d6'});
+ const queued={...intent,gameId:base.id};
+ const noCapture=new Chess(chess.fen());noCapture.move('Kf8');assert.equal(premoveReady({...base,fen:noCapture.fen()},'one',queued),false);
+ chess.move('d5');assert.equal(premoveReady({...base,fen:chess.fen()},'one',queued),true);assert.ok(chess.move(intent).isEnPassant());
+ const promote=new Chess('1r5k/P7/8/8/8/8/8/7K b - - 0 1');
+ const promotion={...boardMove(promote,'a7','b8','w'),promotion:'n',gameId:base.id};promote.move('Kg8');
+ assert.equal(premoveReady({...base,fen:promote.fen()},'one',promotion),true);promote.move(promotion);assert.equal(promote.get('b8').type,'n');
+ assert.equal(premoveReady({...base,fen:'4r2k/8/8/8/8/8/4Rb2/4K3 w - - 0 1'},'one',{from:'e2',to:'f2',gameId:base.id}),false,'recapture cannot expose the king');
+ assert.equal(premoveReady({...base,fen:chess.fen()},'one',{from:'d2',to:'c3',gameId:base.id}),false,'captured origin cancels');
+});
 await check('Late polling responses cannot rewind a live board',()=>{
  const game=createGame('one','two',5,0);const old={me:'one',game:{...game,version:3},serverNow:100,players:[],stats:{},headToHead:{},recent:[]};
  assert.equal(mergeRoom(old,{me:'one',game:{...game,version:2},serverNow:200}),old);
@@ -324,7 +357,7 @@ await check('Gud can replace his long code without changing his identity or char
  sql.prepare(pinUpdate(usman.id,'583920',salt)).get();
  assert.equal((await get(cookieUsman)).status,401);
  assert.equal((await POST(request({action:'login',pin:usman.pin}))).status,401);
- const logged=await POST(request({action:'login',pin:'583920'}));assert.equal(logged.status,200);const room=await logged.json();
+ const logged=await POST(request({action:'login',pin:'583920'}));assert.equal(logged.status,200);cookieUsman=logged.headers.get('set-cookie').split(';')[0];const room=await logged.json();
  assert.equal(room.me,usman.id);assert.equal(room.players.find(p=>p.id===usman.id).character,'gud');assert.equal(room.stats[usman.id].wins,1);
 });
 const {handleBridge,resultOpening}=require(new URL('lib/server/imessage.cjs',build).pathname);
@@ -480,6 +513,19 @@ await check('Spectators can switch live games and follow moves and results witho
  assert.doesNotMatch(JSON.stringify(snapshot),/pin_hash|token_hash|spectatorCode|salt|headToHead/);assert.equal(snapshot.recent,undefined);
  spectatorGame=await reopened.act(spectatorGame.white,'move',{gameId:spectatorGame.id,version:spectatorGame.version,from:'e2',to:'e4'});
  assert.equal((await (await spectator(undefined,spectatorCookie,'?game='+spectatorGame.id)).json()).selectedGame.moves[0],'e4');
+ const walanLogin=await POST(request({action:'login',pin:'004281'}));assert.equal(walanLogin.status,200);
+ const walanCookie=walanLogin.headers.get('set-cookie').split(';')[0];
+ for(const cookie of [walanCookie,cookieTwo,cookieUsman]) {
+  const response=await get(cookie,'?watch=1');assert.equal(response.status,200);
+  const view=await response.json(),viewer=await sessionPlayer(env.DB,new Request('https://rival.test',{headers:{Cookie:cookie}}));
+  assert.ok(view.games.length);assert.ok(view.games.every(item=>item.white!==viewer&&item.black!==viewer));
+  assert.doesNotMatch(JSON.stringify(view),/pin_hash|token_hash|salt|headToHead/);assert.equal(view.recent,undefined);
+ }
+ const playerWatch=await (await get(cookieUsman,'?watch=1&game='+spectatorGame.id)).json();assert.equal(playerWatch.selectedGame.moves[0],'e4');
+ assert.equal((await (await get(cookieTwo,'?watch=1&game='+spectatorGame.id)).json()).selectedGame,null);
+ for(const action of ['move','resign','offerDraw','cancel'])assert.equal((await POST(request({action,gameId:spectatorGame.id,version:spectatorGame.version,from:'e7',to:'e5'},cookieUsman))).status,403,'watching grants no player control');
+ assert.equal((await get('','?watch=1')).status,401);assert.equal((await get(spectatorCookie,'?watch=1')).status,401);
+ assert.equal((await get(cookieUsman,'?watch=1&game='+ 'x'.repeat(65))).status,400);
  await reopened.act(usman.id,'resign',{gameId:another.id,version:another.version});
 });
 await check('Spectator cookies cannot challenge, rename, move, resign, draw, or send notification commands',async()=>{
@@ -506,6 +552,18 @@ await check('Rotating or disabling spectator access revokes viewers only; logout
  const expiring=await spectator({action:'login',pin:replacementCode});const expiryCookie=expiring.headers.get('set-cookie').split(';')[0];sql.exec('UPDATE spectator_sessions SET expires=0');assert.equal((await spectator(undefined,expiryCookie)).status,401);
  const finalLogin=await spectator({action:'login',pin:replacementCode});const finalCookie=finalLogin.headers.get('set-cookie').split(';')[0];sql.exec('UPDATE spectator_settings SET pin_hash=NULL WHERE id=1');assert.equal((await spectator(undefined,finalCookie)).status,401);
  assert.deepEqual(sql.prepare('SELECT * FROM players ORDER BY id').all(),players);assert.deepEqual(sql.prepare('SELECT * FROM sessions ORDER BY token_hash').all(),sessions);assert.deepEqual(sql.prepare('SELECT * FROM games ORDER BY id').all(),games);
+});
+await check('Player watch works without spectator access, retains finished results, and respects logout',async()=>{
+ const response=await get(cookieUsman,'?watch=1&game='+spectatorGame.id);assert.equal(response.status,200);
+ const view=await response.json();assert.equal(view.selectedGame.status,'finished');assert.ok(!view.games.some(game=>game.id===spectatorGame.id));
+ const pending=await reopened.create('one','two',5,0);
+ assert.equal((await (await get(cookieUsman,'?watch=1&game='+pending.id)).json()).selectedGame,null);
+ await reopened.act('one','cancel',{gameId:pending.id,version:pending.version});
+ sql.exec('DELETE FROM attempts');
+ const login=await POST(request({action:'login',pin:'583920'}));assert.equal(login.status,200);
+ const temporary=login.headers.get('set-cookie').split(';')[0];assert.equal((await get(temporary,'?watch=1')).status,200);
+ await POST(request({action:'logout'},temporary));assert.equal((await get(temporary,'?watch=1')).status,401);
+ assert.equal((await get(cookieUsman,'?watch=1')).status,200);
 });
 const clubStore=new Store(env.DB);
 let clubCookie;

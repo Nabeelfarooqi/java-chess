@@ -27,3 +27,17 @@
     .spectator-club.game-active .board-column { width: min(100%, max(260px, calc(100svh - 310px))); }
     .spectator-club .board-status { font-size: 13px; }
 }
+
+.watch-dialog[data-slot="dialog-content"] { width: min(760px, calc(100vw - 20px)); max-width: 760px; max-height: calc(100dvh - 24px); overflow-y: auto; display: block; padding: 0; overscroll-behavior: contain; }
+.watch-dialog .spectator-club { padding: 18px; }
+.watch-dialog .club-header { gap: 12px; padding-bottom: 12px; }
+.watch-dialog .club-header button { flex-shrink: 0; min-height: 44px; }
+.watch-loading { display: grid; place-items: center; gap: 16px; padding: 40px 20px; }
+@media (max-width: 700px) {
+    .header-actions .watch-games-button > span { display: inline; }
+    .watch-dialog .spectator-club { padding: 12px 8px; }
+    .watch-dialog .spectator-heading > svg { display: none; }
+    .watch-dialog .spectator-heading strong { font-size: 15px; }
+    .watch-dialog .club-header button > span { display: inline; }
+    .watch-dialog .spectator-club.game-active .board-column { width: min(100%, max(240px, calc(100svh - 300px))); }
+}

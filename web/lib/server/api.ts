@@ -1,4 +1,5 @@
 import { practiceGET, practicePOST } from './practice';
+import { watchView } from './spectator';
 import { Store } from './store';
 import { digest, login, rateLimit, sessionCookie, sessionPlayer, sessionToken } from './auth';
 import { GameError } from '../game';
@@ -17,6 +18,7 @@ export async function handleGET(req: Request, env: LiveEnv, ctx?: ExecutionConte
     const me = await sessionPlayer(database, req);
     if (!me)
         return json({ locked: true }, 401);
+    if (new URL(req.url).searchParams.get('watch') === '1') return json(await watchView(database, req, env, ctx, me));
     const store = storeFor(database, env, ctx);
     if (new URL(req.url).searchParams.has('club')) return json(await store.club());
     if (new URL(req.url).searchParams.has('practice')) return json(await practiceGET(database, me));

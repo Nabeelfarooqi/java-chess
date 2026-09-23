@@ -44,7 +44,8 @@ export function premoveTargets(board: Chess, from: Square, color: Color): Square
         if (!dx && !dy) continue;
         const type = piece.type;
         const valid = type === 'n' ? dx * dy === 2 : type === 'b' ? dx === dy : type === 'r' ? dx === 0 || dy === 0 : type === 'q' ? dx === dy || dx === 0 || dy === 0 : type === 'k' ? Math.max(dx, dy) === 1 || (fx === 4 && fy === (color === 'w' ? 1 : 8) && dy === 0 && dx === 2) : (forward === 1 && dx <= 1) || (dx === 0 && forward === 2 && fy === (color === 'w' ? 2 : 7));
-        if (board.get(('abcdefgh'[x] + y) as Square)?.color === color) continue;
+        // A friendly piece may be captured before our turn. Permit its square
+        // as a recapture target; premoveReady checks the resulting position.
         if (valid) targets.push(('abcdefgh'[x] + y) as Square);
     }
     return targets;
