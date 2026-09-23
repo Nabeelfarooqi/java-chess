@@ -197,7 +197,7 @@ export function Club({ room, busy, online, live, latency, moveLatency, deliveryS
  <Dialog open={!!historyGame} onOpenChange={open => { if (!open)
         setHistoryGame(null); }}><DialogContent><DialogHeader><DialogTitle>{historyGame?.winner ? `${who(historyGame.winner)} won` : 'Draw'}</DialogTitle><DialogDescription>{historyGame?.reason} · {historyGame?.minutes}+{historyGame?.increment} · {historyGame && new Date(historyGame.createdAt).toLocaleDateString()}</DialogDescription></DialogHeader>{historyGame && <><MoveList moves={historyGame.moves}/><Button onClick={() => { setReviewGame(historyGame); setHistoryGame(null); }}>Game review</Button><Button onClick={() => download('rival-room-game.pgn', pgn(historyGame, room.players))}><Download size={15}/>Download game (PGN)</Button></>}</DialogContent></Dialog>
  {practice && !playing && <Suspense fallback={<p role="status">Opening practice…</p>}><PracticeRoom onClose={()=>setPractice(false)}/></Suspense>}
- {reviewGame && !playing && <Suspense fallback={<p role="status">Opening game review…</p>}><GameReview game={reviewGame} players={room.players} me={me} onClose={() => setReviewGame(null)}/></Suspense>}
+ {reviewGame && !playing && <Suspense fallback={<p role="status">Opening game review…</p>}><GameReview key={reviewGame.id} game={reviewGame} players={room.players} me={me} onClose={() => setReviewGame(null)}/></Suspense>}
  </main>;
 }
 function MoveList({ moves }: {

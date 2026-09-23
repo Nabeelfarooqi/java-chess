@@ -12,7 +12,7 @@
     "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
-    "test": "npm run test:migrations && node tests/run.mjs && node tests/app-extras.mjs && node tests/presentation.mjs && node tests/realtime.mjs && node tests/imessage.mjs && npm run test:subdomain",
+    "test": "npm run test:migrations && node tests/run.mjs && node tests/app-extras.mjs && node tests/presentation.mjs && node tests/review.mjs && node tests/realtime.mjs && node tests/imessage.mjs && npm run test:subdomain",
     "test:migrations": "node tests/migrations.mjs",
     "db:check": "node scripts/check-migrations.mjs",
     "typecheck": "tsc --noEmit",
@@ -31,7 +31,8 @@
     "cloudflare:spectator-pin": "node scripts/spectator-pin-cli.mjs",
     "cloudflare:subdomain": "node scripts/cloudflare-subdomain-cli.mjs",
     "test:subdomain": "node tests/subdomain.mjs && node tests/subdomain-cli.mjs",
-    "imessage:memes": "node scripts/meme-cli.mjs"
+    "imessage:memes": "node scripts/meme-cli.mjs",
+    "test:review:engines": "node scripts/prepare-engine.mjs && node tests/review.mjs --engines"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

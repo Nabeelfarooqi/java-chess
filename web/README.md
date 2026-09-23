@@ -264,13 +264,29 @@ Piece artwork: Colin M. L. Burnett’s cburnett set from Lichess, distributed un
 
 ## Game Review
 
-After a game, click **Game review** on the result, or open a game under **The record** and choose **Game review**. Move backward/forward or select a move to see the position, White's evaluation before and after, the engine's preferred move, and a suggested continuation.
+After a game, choose **Game review** on the result or under **The record**. The review workspace keeps your characters on the board and adds:
 
-The first pass spends about 250 ms per position; **Deeper review** uses about one second. Actual duration and depth depend on the device. **Stop analysis** cancels it, and closing the review terminates its worker. Analysis runs locally in a separate browser Web Worker and is available only for finished games. The current tab caches up to 20 completed reviews; the saved game can be analyzed again after a reload.
+- **An evaluation timeline:** drag or use the slider's arrow keys to revisit any position. All scores use White's perspective; positive favors White. The graph is a pawn-score display capped at ±6, not a win probability.
+- **Key moments and All moves:** jump to mistakes, blunders, inaccuracies, and brilliant moves, or filter to your side. Player cards show reviewed move counts, best moves, mistakes, blunders, and average loss in pawns. Forced-mate evaluations are excluded from that average.
+- **Compare move arrows:** see the engine's choice in teal and your played move in orange, on the position before the move.
+- **Playable engine lines:** tap any move in a candidate line or explore the reply to the played move. The board shows that continuation without changing the saved game.
+- **Try a better move:** play either side, undo, promote to any piece, ask for a hint, or analyze your continuation. The starting game and its record stay unchanged. Matching the first engine choice is feedback, not proof that every other move is bad.
+- **Deepen this move:** spend two seconds comparing up to three candidates, then 1.5 seconds checking the played position. This improves the selected turning point without restarting the entire review.
+- **Save my mistakes for practice:** retains the existing import of up to 40 of your reviewed mistakes/blunders into Club → Practice my mistakes.
 
-Labels are **Best, Excellent, Good, Inaccuracy, Mistake, Blunder, Forced**, and a custom **Brilliant** sacrifice heuristic. Inaccuracies lose at least 0.5 pawns, mistakes 1 pawn, and blunders 2 pawns compared with the evaluation before the move, from the mover's perspective. Best matches the engine's first choice; Forced is the only legal move. Brilliant requires an engine-best, sound offer of a more valuable piece, depth 12 or higher, and little evaluation loss. The review explains mating lines separately from pawn scores. These are Rival Room's estimates, not Chess.com's proprietary ratings; deeper analysis may change them. This version has no accuracy percentage, Elo estimate, opening database, or generated coaching chat.
+The first pass spends about 250 ms per position; **Deeper review** spends one second per position. Actual duration and depth depend on the device. Stop pauses the work; **Resume review** fills missing positions. Existing evaluations remain visible during refinement. Closing the review cancels its worker and pending downloads. Up to 12 game/engine combinations are cached in the current tab, including partial results; reloading clears those analysis results. Analysis is available only for finished games.
 
-The build downloads **Stockfish.js 19.0.0 Lite, single-threaded** into ignored `public/engine/`, verifies pinned SHA-256 hashes, and reuses valid cached files. The browser downloads the roughly 1.8 MB engine when review is first opened. Initial development/build requires access to `unpkg.com`; retry if that download fails. A modern browser with WebAssembly and Web Workers is required. See [Stockfish.js upstream](https://github.com/nmrugg/stockfish.js) for engine details. The unmodified engine is GPL-3.0; its license and exact corresponding source links are served at `/engine/Copying.txt` and `/engine/SOURCE.txt`, and linked inside the review.
+### Free engine choices
+
+**Stockfish 19 Lite** remains the default, with a roughly 1.8 MB initial engine download. Under **Engine strength**, explicitly choose **Load Full · 99 MB** for the full Stockfish 19 evaluation network. It is a 99 MB download (94.5 MiB), uses more memory, and is best suited to a computer. Both variants are single-threaded browser workers: no paid API, analysis server, subscription, or new Cloudflare service is required. Full does not download just because you open a Lite review. Switching engines keeps their evaluations separate and returns to the start of the review. Full's downloaded binary is reused within that open review and released when you close it or change engines; subsequent transfers depend on the browser's HTTP cache. If Full fails, use **Lite instead**.
+
+The first development/build downloads both pinned Stockfish.js 19.0.0 variants from `unpkg.com` and verifies SHA-256 hashes. The complete Full WASM is cached outside public assets, then split into five files of at most 20 MiB to fit Cloudflare's per-asset limit. The browser verifies and reassembles the original binary byte-for-byte, with progress and cancellation. No large engine file is added to Git. Deploying this update takes a larger initial asset upload; later builds reuse the verified cache. A modern browser with WebAssembly and Web Workers is required. Ordinary Workers/D1/live-game free-tier limits still apply to the website.
+
+Labels are **Best, Excellent, Good, Inaccuracy, Mistake, Blunder, Forced**, and a custom **Brilliant** sacrifice heuristic. Inaccuracies lose at least 0.5 pawns, mistakes 1 pawn, and blunders 2 pawns compared with the evaluation before the move, from the mover's perspective. Best matches the engine's first choice; Forced is the only legal move. Brilliant requires an engine-best, sound offer of a more valuable piece, depth 12 or higher, and little evaluation loss. These are Rival Room's estimates, not Chess.com's ratings. Deeper analysis may change them. There is no invented accuracy percentage or Elo estimate.
+
+The unmodified engine is GPL-3.0; its license and exact corresponding source links are served at `/engine/Copying.txt` and `/engine/SOURCE.txt`, and linked inside the review. See [Stockfish.js upstream](https://github.com/nmrugg/stockfish.js).
+
+**Update:** pull and run `npm run cloudflare:deploy`. This review release adds no migration and needs no PIN changes or iMessage setup. `npm test` includes review ranking/classification/variation checks; `npm run test:review:engines` additionally prepares the assets, verifies Full's download/reassembly lifecycle, and runs both actual WASM engines through UCI. Build, type checks, existing multiplayer tests, and a DOM interaction smoke check passed. The available browser could not access the local preview, so real iPhone rendering and browser Worker loading still need an on-device check after deployment.
 
 ## Records and backups
 
@@ -322,7 +338,7 @@ The app uses React, TypeScript, Vinext, chess.js, Cloudflare D1, WebSocket Durab
 | `app/chess-board.tsx`, `lib/board.ts` | Mouse/touch input, legal previews, castling input, and premoves. |
 | `lib/characters.ts`, `app/character-art.tsx`, `app/characters.css` | PIN-identity artwork, character kings, board camps, and room palettes. |
 | `app/player-clock.tsx` | Clock updates isolated from board rendering. |
-| `app/game-review.tsx`, `lib/review*.ts` | Review UI, browser engine protocol, and move-label heuristics. |
+| `app/game-review.tsx`, `app/review-widgets.tsx`, `app/review.css`, `lib/review*.ts`, `lib/use-game-review.ts` | Review workspace, engine choices, verified asset loading, variations, and move-label heuristics. |
 | `lib/server/imessage.ts`, `drizzle/0004_imessage_pin_tools.sql` | Authenticated notification queue, committed-game triggers, and per-player PIN revocation. |
 | `scripts/set-pin.mjs`, `cloudflare-admin.mjs` | Hidden personal PIN replacement and Cloudflare administration. |
 | `scripts/imessage-*.mjs`, `bluebubbles-client.mjs`, `winner-card.mjs` | Local setup, sender, delivery journal, and result image rendering. |
