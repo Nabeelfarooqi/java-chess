@@ -89,37 +89,37 @@ for (const recovery of ['Try again', 'online event']) {
   });
 }
 
-test('an optional chunk 503 stays inside its feature boundary and recovers through reload', async ({ page }) => {
-  let blocked = 0;
+test('an optional chunk 503 stays inside its feature boundary and recovers through reload', async ({ page, app }) => {
   const chunkPattern = /\/club-hub-[^/]+\.js(?:\?.*)?$/;
-  // Model a retryable server outage. Inspector-level aborts can keep WebKit's
-  // module request blocked across reload, unlike a non-cacheable HTTP failure.
-  const failChunk = async route => {
-    blocked++;
-    await route.fulfill({ status: 503, contentType: 'text/plain',
-      headers: { 'Cache-Control': 'no-store' }, body: 'Synthetic chunk outage' });
-  };
-  await page.route(chunkPattern, failChunk);
-  await signIn(page);
-  await page.getByRole('tab', { name: 'Club', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'The club could not open.' })).toBeVisible();
-  expect(blocked).toBeGreaterThan(0);
-  await page.getByRole('button', { name: 'Back to game', exact: true }).click();
-  await expect(page.getByRole('tab', { name: 'Play', exact: true })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('grid', { name: 'Chess board', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Room settings' })).toBeEnabled();
-  await page.unroute(chunkPattern, failChunk);
-  // The rejected lazy import stays failed in this document. Use the recovery
-  // action offered to the player, then require a real successful chunk fetch.
-  await page.getByRole('tab', { name: 'Club', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'The club could not open.' })).toBeVisible();
-  const recoveredChunk = page.waitForResponse(response => chunkPattern.test(response.url()));
-  await Promise.all([
-    page.waitForEvent('load'),
-    page.getByRole('button', { name: 'Reload room', exact: true }).click(),
-  ]);
-  await expect(page.locator('.signed-in-player')).toContainText('Browser One');
-  await page.getByRole('tab', { name: 'Club', exact: true }).click();
-  expect((await recoveredChunk).status()).toBe(200);
-  await expect(page.getByRole('heading', { name: 'The usual suspects.' })).toBeVisible();
+  // Use a real loopback HTTP outage so failure and recovery exercise the
+  // browser's network behavior without inspector-protocol interception.
+  await app.setChunkOutage(true);
+  try {
+    await signIn(page, 'one', app.faultOrigin);
+    await page.getByRole('tab', { name: 'Club', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'The club could not open.' })).toBeVisible();
+    await page.getByRole('button', { name: 'Back to game', exact: true }).click();
+    await expect(page.getByRole('tab', { name: 'Play', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('grid', { name: 'Chess board', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Room settings' })).toBeEnabled();
+    expect((await app.setChunkOutage(false)).failedRequests).toBeGreaterThan(0);
+    // The rejected lazy import stays failed in this document. Use the recovery
+    // action offered to the player, then require a real successful chunk fetch.
+    await page.getByRole('tab', { name: 'Club', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'The club could not open.' })).toBeVisible();
+    const recoveredChunk = page.waitForResponse(response => chunkPattern.test(response.url()), { timeout: 10_000 });
+    await Promise.all([
+      recoveredChunk.then(response => expect(response.status()).toBe(200)),
+      (async () => {
+        await Promise.all([
+          page.waitForEvent('load'),
+          page.getByRole('button', { name: 'Reload room', exact: true }).click(),
+        ]);
+        await expect(page.locator('.signed-in-player')).toContainText('Browser One');
+        await page.getByRole('tab', { name: 'Club', exact: true }).click();
+        await expect(page.getByRole('heading', { name: 'The usual suspects.' })).toBeVisible();
+      })(),
+    ]);
+    expect((await app.setChunkOutage(false)).healthyRequests).toBeGreaterThan(0);
+  } finally { await app.setChunkOutage(false); }
 });

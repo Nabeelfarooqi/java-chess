@@ -34,6 +34,7 @@ Three specialists reviewed gameplay/accessibility, backend/dependencies, and des
 | R24 | P3 | Incoming challenges restore Play and dismiss stale optional dialogs | Frontend; browser challenge-arrival checks |
 | R25 | P3 | Read-only boards permit native touch scrolling | Frontend; rendered semantics verified, physical touch test pending |
 | R26 | P2, discovered during implementation | Review no longer mixes partial search depths into duplicate alternatives; final UCI best move stays first and alternatives come from a complete distinct exact iteration | Engine/QA; deterministic rank-swap fixture plus actual Lite/Full WASM, legal/distinct moves and final-best matching |
+| R27 | P2, discovered in browser CI | Disable Vite JavaScript module preloads to avoid WebKit retaining failed preloads across reload. Native lazy imports and CSS loading remain; optional features may need extra network round trips on a cold load | Frontend/platform; real HTTP 503, preserved room, actual Reload room action, successful chunk response and restored Club in Chromium/WebKit. Matches open [WebKit bug 270357](https://bugs.webkit.org/show_bug.cgi?id=270357) |
 
 ## Minor changes and conditional backlog
 

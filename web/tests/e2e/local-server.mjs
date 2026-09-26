@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pbkdf2Sync, randomUUID } from 'node:crypto';
+import { startFaultProxy } from './fault-proxy.mjs';
 
 if (!process.send) throw new Error('Start this local fixture through the Playwright worker.');
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -12,6 +13,7 @@ const directory = await mkdtemp(join(tmpdir(), 'rival-playwright-'));
 const configPath = join(directory, 'wrangler.json');
 const statePath = join(directory, 'state');
 let server;
+let faultProxy;
 let closing;
 
 function wrangler(args) {
@@ -26,6 +28,7 @@ function wrangler(args) {
 function stop() {
   if (closing) return closing;
   closing = (async () => {
+    if (faultProxy) await faultProxy.stop();
     if (server) await server.stop();
     // Only remove the exact unique directory allocated by this fixture.
     if (!resolve(directory).startsWith(resolve(tmpdir()) + sep) || !basename(directory).startsWith('rival-playwright-')) {
@@ -38,6 +41,9 @@ function stop() {
 
 process.on('message', message => {
   if (message?.type === 'stop') void stop().then(() => process.exit(0), error => { console.error(error); process.exit(1); });
+  if (message?.type === 'chunk-outage' && faultProxy) {
+    process.send({ type: 'chunk-outage-set', id: message.id, ...faultProxy.setChunkOutage(message.enabled) });
+  }
 });
 process.on('disconnect', () => { void stop().finally(() => process.exit(0)); });
 
@@ -86,7 +92,8 @@ UPDATE notification_settings SET enabled=0 WHERE id=1;\n`);
   const origin = `http://127.0.0.1:${server.port}`;
   const response = await fetch(origin + '/api/room', { signal: AbortSignal.timeout(10_000) });
   if (response.status !== 401) throw new Error(`Expected locked local room, got ${response.status}`);
-  process.send({ type: 'ready', origin });
+  faultProxy = await startFaultProxy(origin);
+  process.send({ type: 'ready', origin, faultOrigin: faultProxy.origin });
 } catch (error) {
   process.send?.({ type: 'error', message: error instanceof Error ? error.message : String(error) });
   await stop().catch(() => {});

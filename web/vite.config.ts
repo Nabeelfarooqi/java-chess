@@ -55,6 +55,12 @@ export default defineConfig(async () => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
+    build: {
+      // WebKit can retain failed modulepreloads across reload (bug 270357).
+      // Keep native lazy imports and Vite's CSS loading, without JS preloads.
+      // https://bugs.webkit.org/show_bug.cgi?id=270357
+      modulePreload: false,
+    },
     server: {
       ...(managedLinux ? { host: "0.0.0.0", allowedHosts: ["terminal.local"] } : {}),
       ...(isCodexSeatbeltSandbox ? { watch: { useFsEvents: false, usePolling: true } } : {}),

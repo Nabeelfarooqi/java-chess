@@ -33,16 +33,29 @@ async function launch() {
     try { await exited; } finally { clearTimeout(timer); }
   };
   try {
-    const origin = await new Promise((resolve, reject) => {
+    const origins = await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Local built app did not start within 120 seconds.\n' + output)), 120_000);
       child.once('error', error => { clearTimeout(timer); reject(error); });
       child.once('exit', code => { clearTimeout(timer); reject(new Error(`Local fixture exited (${code}).\n${output}`)); });
       child.on('message', message => {
-        if (message.type === 'ready') { clearTimeout(timer); resolve(message.origin); }
+        if (message.type === 'ready') { clearTimeout(timer); resolve({ origin: message.origin, faultOrigin: message.faultOrigin }); }
         if (message.type === 'error') { clearTimeout(timer); reject(new Error(message.message + '\n' + output)); }
       });
     });
-    return { origin, stop };
+    let requestId = 0;
+    const setChunkOutage = enabled => new Promise((resolve, reject) => {
+      const id = ++requestId;
+      const finish = (error, result) => {
+        clearTimeout(timer); child.off('message', receive); child.off('exit', exited);
+        if (error) reject(error); else resolve(result);
+      };
+      const receive = message => { if (message?.type === 'chunk-outage-set' && message.id === id) finish(null, message); };
+      const exited = () => finish(new Error('Local fault proxy exited.'));
+      const timer = setTimeout(() => finish(new Error('Local fault proxy did not acknowledge the outage setting.')), 10_000);
+      child.on('message', receive); child.once('exit', exited);
+      child.send({ type: 'chunk-outage', id, enabled }, error => { if (error) finish(error); });
+    });
+    return { ...origins, setChunkOutage, stop };
   } catch (error) { await stop(); throw error; }
 }
 
@@ -55,8 +68,8 @@ export const test = base.extend({
 });
 export { expect };
 
-export async function signIn(page, player = 'one') {
-  await page.goto('/');
+export async function signIn(page, player = 'one', origin = '') {
+  await page.goto(origin + '/');
   await page.getByLabel('Your personal access code').fill(player === 'one' ? '100000000001' : '100000000002');
   await page.getByRole('button', { name: 'Enter room', exact: true }).click();
   await expect(page.locator('.signed-in-player')).toContainText(player === 'one' ? 'Browser One' : 'Browser Two');
