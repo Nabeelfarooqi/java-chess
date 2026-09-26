@@ -44,8 +44,12 @@
 .board-frame[data-board-theme="slate"] .square.dark { background: #697d91; }
 @media (max-width: 700px) {
   .club-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
-  .header-actions { gap: 0; display: grid; grid-template-columns: 44px 44px; }
-  .header-actions .connection-meter { grid-column: 1 / -1; grid-row: 2; justify-content: flex-end; min-width: 0; padding-right: 7px; font-size: 10px; min-height: 15px; }
+  /* Three icon actions share a row; the connection is also a 44px touch target. */
+  .header-actions { display: grid; grid-template-columns: repeat(3, 44px); gap: 4px; }
+  .header-actions > button:not(.connection-meter) { width: 44px; min-width: 44px; height: 44px; padding: 10px; }
+  .header-actions > button:not(.connection-meter) > span { display: none; }
+  .header-actions .connection-meter { grid-column: 1 / -1; grid-row: 2; justify-content: flex-end; width: 100%; min-width: 0; min-height: 44px; padding: 0 4px; font-size: 10px; }
+  .header-actions .connection-meter > span { display: inline; }
   .header-actions .connection-meter small { font-size: 9px; }
   .club .identity-portrait { width: 42px; height: 47px; border-radius: 11px; }
   .character-player .character-portrait { width: 40px; height: 44px; border-radius: 10px; }

@@ -55,14 +55,14 @@ Three specialists reviewed gameplay/accessibility, backend/dependencies, and des
 | M14 | Shared request transport rejects invalid/proxy responses with safe errors and preserves HTTP status | Frontend regressions; full per-endpoint response schemas remain follow-up work |
 | M15 | Reconnect jitter and privacy-conscious operational metrics remain follow-up work | Realtime: measure reconnect load, avoid identifying telemetry, preserve rapid game recovery |
 | M16 | Full-engine memory/background behavior needs low-memory physical iOS/Android checks | QA: cancellation, resume, no lost game state, clear capability documentation |
-| M17 | 320px/390px browser layout checked; landscape, text zoom, reduced motion and physical touch matrix still required | QA: no clipped controls, readable long names, usable focus/touch targets |
+| M17 | Header controls now have separate 44px touch targets; 320px/390px portrait and 844px landscape browser layouts checked. Text zoom, reduced motion and physical touch matrix still required | QA: no clipped controls, readable long names, usable focus/touch targets |
 | M18 | Reproducible verification and release/operations documentation provided | New checkout can run documented commands without private services |
 | M19 | Dependency removal remains conditional on import/runtime/license inventory | Platform: preserve Stockfish licenses/source offers and verified asset limits |
 | M20 | CI has read-only permissions, cancellation and time limits; dependency refresh remains reviewable | Platform: consider immutable Action SHA pins in a focused maintenance change |
 
 ## Verification and rollout
 
-Use Node 22.13+ and the pinned pnpm version. From `web`, run `npx pnpm@11.25.0 install --frozen-lockfile`, `npm run verify`, `npx playwright install chromium`, then `npm run test:browser`. From the repository root, run `java Build.java test` and `java Build.java build` with JDK 17 or newer. Browser fixtures must use disposable local D1 state and synthetic codes; they do not send messages or call production APIs.
+Use Node 22.13+ and the pinned pnpm version. From `web`, run `npx pnpm@11.25.0 install --frozen-lockfile`, `npm run verify`, `npx playwright install chromium webkit`, then `npm run test:browser`. Linux hosts may need `npx playwright install --with-deps chromium webkit` for system dependencies. From the repository root, run `java Build.java test` and `java Build.java build` with JDK 17 or newer. Browser fixtures must use disposable local D1 state and synthetic codes; they do not send messages or call production APIs.
 
 Migration `0008_auth_revision_and_indexes.sql` is additive. Rehearse it against an exported copy of the existing database, verify retained identities/games/series/sessions, then deploy it before the new Worker or PIN tooling. Existing valid sessions survive migration; a subsequent code rotation revokes the affected player's sessions. Do not run the new code against an unmigrated database. Old Workers do not provide the new login-race protection, so a code rollback does not establish equivalent security. Never delete the new columns/history as an improvised rollback.
 

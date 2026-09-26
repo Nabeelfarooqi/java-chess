@@ -34,7 +34,6 @@
 .watch-dialog .club-header button { flex-shrink: 0; min-height: 44px; }
 .watch-loading { display: grid; place-items: center; gap: 16px; padding: 40px 20px; }
 @media (max-width: 700px) {
-    .header-actions .watch-games-button > span { display: inline; }
     .watch-dialog .spectator-club { padding: 12px 8px; }
     .watch-dialog .spectator-heading > svg { display: none; }
     .watch-dialog .spectator-heading strong { font-size: 15px; }
