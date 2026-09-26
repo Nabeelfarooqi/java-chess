@@ -1,10 +1,34 @@
 import { Chess } from 'chess.js';
-import { assert, type Game } from '../game';
+import { assert, GameError, type Game } from '../game';
 import { uciMove } from '../review';
+import type { PracticePage, PracticePuzzle } from '../practice';
 type Puzzle = { id:string; player_id:string; game_id:string; ply:number; fen:string; solution:string; loss:number; depth:number; created_at:number; solved_at:number|null; attempts:number };
-export async function practiceGET(db:D1Database, me:string) {
-    const rows = await db.prepare('SELECT id,game_id AS gameId,ply,fen,loss,depth,created_at AS createdAt,solved_at AS solvedAt,attempts FROM practice_puzzles WHERE player_id=? ORDER BY solved_at IS NOT NULL,created_at DESC LIMIT 100').bind(me).all();
-    return {puzzles:rows.results};
+export async function practiceGET(db:D1Database, me:string, encoded?:string|null): Promise<PracticePage> {
+    const size = 50;
+    let cursor: { id: string; createdAt: number; player: string } | undefined;
+    if (encoded) {
+        assert(encoded.length <= 1024, 'Invalid practice cursor.');
+        let value;
+        try { value = JSON.parse(decodeURIComponent(atob(encoded))); }
+        catch { throw new GameError('Invalid practice cursor.'); }
+        assert(value && typeof value === 'object' && typeof value.id === 'string' && /^[a-zA-Z0-9_-]{1,64}$/.test(value.id)
+            && Number.isSafeInteger(value.createdAt) && value.createdAt >= 0 && value.player === me, 'Invalid practice cursor.');
+        cursor = value;
+    }
+    // Solving/deepening a puzzle does not change this immutable order, allowing
+    // a session to page while its progress is updated.
+    const query = db.prepare(`SELECT id,game_id AS gameId,ply,fen,loss,depth,created_at AS createdAt,solved_at AS solvedAt,attempts
+        FROM practice_puzzles WHERE player_id=?${cursor ? ' AND (created_at<? OR (created_at=? AND id<?))' : ''}
+        ORDER BY created_at DESC,id DESC LIMIT ?`);
+    const [rows, count] = await Promise.all([
+        (cursor ? query.bind(me,cursor.createdAt,cursor.createdAt,cursor.id,size+1) : query.bind(me,size+1)).all<PracticePuzzle>(),
+        db.prepare('SELECT COUNT(*) AS total FROM practice_puzzles WHERE player_id=?').bind(me).first<{total:number}>(),
+    ]);
+    const puzzles = rows.results.slice(0,size), last = puzzles.at(-1);
+    return {
+        puzzles, total: count?.total || 0,
+        nextCursor: rows.results.length > size && last ? btoa(encodeURIComponent(JSON.stringify({id:last.id,createdAt:last.createdAt,player:me}))) : null,
+    };
 }
 export async function practicePOST(db:D1Database, me:string, body:Record<string,unknown>) {
     if (body.action === 'practiceSave') {

@@ -30,11 +30,19 @@ export function cloudBridge(config, fetcher = fetch) {
 export async function deliver(job, config, { bb, post, journal, memes }) {
   if (!job || !['challenge', 'result'].includes(job.kind) || typeof job.id !== 'string' || typeof job.text !== 'string') throw new Error('Invalid chess event.');
   const ack = (status, detail = '') => post({ action: 'ack', id: job.id, leaseToken: job.leaseToken, status, detail });
-  const chatGuid = job.kind === 'result' ? config.groupChatGuid : config.targets[job.recipientId];
+  const previous = journal.get(job.id);
+  if (previous?.resolution) {
+    if (!['sent', 'skipped'].includes(previous.resolution)) throw new Error('Invalid saved resolution.');
+    await ack(previous.resolution, 'Operator resolved after checking Messages'); return previous.resolution;
+  }
+  const configuredChat = job.kind === 'result' ? config.groupChatGuid : config.targets[job.recipientId];
+  const chatGuid = previous?.destinationApproved ? previous.chatGuid : configuredChat;
   if (!chatGuid) { await ack('skipped', 'No destination configured for this player'); return 'skipped'; }
   if (chatKind({ guid: chatGuid }) !== (job.kind === 'result' ? 'group' : 'direct')) { await ack('needs_review', 'Destination must be an existing iMessage or Messages auto chat of the correct type'); return 'needs_review'; }
-  const previous = journal.get(job.id);
   const state = previous || { chatGuid, parts: {} };
+  if (state.useCurrentDestination && !Object.values(state.parts).some(part => part.status === 'done')) {
+    state.chatGuid = chatGuid; delete state.useCurrentDestination; journal.put(job.id, state);
+  }
   if ((job.attempts > 1 && !previous) || state.chatGuid !== chatGuid || (state.parts.text?.status === 'sending' || (state.meme && state.parts.image?.status === 'sending'))) {
     await ack('needs_review', 'Check Messages before retrying: previous delivery could not be confirmed'); return 'needs_review';
   }

@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 import { readFileSync,mkdirSync,writeFileSync,rmSync,readdirSync } from 'node:fs';
 import ts from 'typescript';
 import {createRequire} from 'node:module';
@@ -7,15 +8,15 @@ import {newPlayer} from '../scripts/player-pin.mjs';
 import {pinUpdate} from '../scripts/set-pin.mjs';
 import {spectatorPinUpdate} from '../scripts/spectator-pin.mjs';
 const build=new URL('../.test-build/',import.meta.url);mkdirSync(build,{recursive:true});
-const files=['lib/sounds.ts','lib/connection.ts','lib/server/spectator.ts','lib/spectator.ts','lib/material.ts','lib/server/imessage.ts','lib/characters.ts','lib/board.ts','lib/room-update.ts','lib/review.ts','lib/club.ts','lib/series.ts','lib/server/practice.ts','lib/game.ts','lib/server/auth.ts','lib/server/store.ts','lib/server/live.ts','lib/server/api.ts','app/api/room/route.ts'];
+const files=['lib/sounds.ts','lib/connection.ts','lib/server/request.ts','lib/server/spectator.ts','lib/spectator.ts','lib/material.ts','lib/server/imessage.ts','lib/characters.ts','lib/board.ts','lib/room-update.ts','lib/review.ts','lib/club.ts','lib/series.ts','lib/server/practice.ts','lib/game.ts','lib/server/auth.ts','lib/server/store.ts','lib/server/live.ts','lib/server/api.ts','app/api/room/route.ts'];
 for(const file of files){let source=readFileSync(new URL('../'+file,import.meta.url),'utf8');
  if(file==='app/api/room/route.ts')source=source.replace("'cloudflare:workers'","'../../../env.cjs'").replaceAll("'@/lib/","'../../../lib/");
  source=source.replace(/from '(\.{1,2}\/[^']+)'/g,(_,path)=>`from '${path.endsWith('.cjs')?path:path+'.cjs'}'`);
  const path=new URL(file.replace(/\.ts$/,'.cjs'),build);mkdirSync(new URL('.',path),{recursive:true});writeFileSync(path,ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText);
 }
 writeFileSync(new URL('env.cjs',build),'exports.env = {};');
-const require=createRequire(import.meta.url);const {env}=require(new URL('env.cjs',build).pathname);const {createGame,transition,expireGame,clockMs,replay,pgn}=require(new URL('lib/game.cjs',build).pathname);const {Store}=require(new URL('lib/server/store.cjs',build).pathname);const {pinHash,verifyPin,sessionPlayer,sessionCookie,digest}=require(new URL('lib/server/auth.cjs',build).pathname);const {GET,POST}=require(new URL('app/api/room/route.cjs',build).pathname);
-const path=new URL('test.sqlite',build).pathname;try{rmSync(path)}catch{};let sql;
+const require=createRequire(import.meta.url);const {env}=require(fileURLToPath(new URL('env.cjs',build)));const {createGame,transition,expireGame,clockMs,replay,pgn}=require(fileURLToPath(new URL('lib/game.cjs',build)));const {Store}=require(fileURLToPath(new URL('lib/server/store.cjs',build)));const {pinHash,verifyPin,sessionPlayer,digest}=require(fileURLToPath(new URL('lib/server/auth.cjs',build)));const {GET,POST}=require(fileURLToPath(new URL('app/api/room/route.cjs',build)));
+const path=fileURLToPath(new URL('test.sqlite',build));try{rmSync(path)}catch{};let sql;
 function connect(){sql=new DatabaseSync(path);return {prepare(text){const values=[];const statement={bind(...args){values.push(...args);return statement},async first(){return sql.prepare(text).get(...values)||null},async all(){return {results:sql.prepare(text).all(...values)}},async run(){const prepared=sql.prepare(text);if(prepared.columns().length)return {results:prepared.all(...values),meta:{changes:0},success:true};const r=prepared.run(...values);return {results:[],meta:{changes:Number(r.changes)},success:true}}};return statement;},async batch(statements){sql.exec('BEGIN');try{const values=[];for(const statement of statements)values.push(await statement.run());sql.exec('COMMIT');return values}catch(e){sql.exec('ROLLBACK');throw e}}}}
 env.DB=connect();for(const f of readdirSync(new URL('../drizzle/',import.meta.url)).filter(f=>f.endsWith('.sql')).sort())sql.exec(readFileSync(new URL('../drizzle/'+f,import.meta.url),'utf8'));
 const testPins=['19462850','60392714'];env.PIN_ONE_HASH='local-one:'+await pinHash(testPins[0],'local-one');env.PIN_TWO_HASH='local-two:'+await pinHash(testPins[1],'local-two');
@@ -173,7 +174,7 @@ await check('History and exports include only your games; renaming keeps your sc
  sql.close();env.DB=connect();assert.equal((await (await get(cookieUsman)).json()).stats[usman.id].wins,1);
 });
 
-const {getCharacter,characterForColor}=require(new URL('lib/characters.cjs',build).pathname);
+const {getCharacter,characterForColor}=require(fileURLToPath(new URL('lib/characters.cjs',build)));
 await check('PIN-linked characters stay with Walan, Gud, and Saif across renames and color swaps',async()=>{
  const room=await reopened.room(usman.id);
  const walan=room.players.find(p=>p.id==='one'),gud=room.players.find(p=>p.id===usman.id),saif=room.players.find(p=>p.id==='two');
@@ -191,7 +192,7 @@ await check('PIN-linked characters stay with Walan, Gud, and Saif across renames
  assert.equal(getCharacter(usman.id),null);assert.equal(getCharacter('two'),null);assert.equal(getCharacter(undefined),null);
 });
 const {Chess}=require('chess.js');
-const {materialSummary}=require(new URL('lib/material.cjs',build).pathname);
+const {materialSummary}=require(fileURLToPath(new URL('lib/material.cjs',build)));
 await check('Capture rows belong to the capturer and net material handles trades, en passant, and promotions',()=>{
  const start=materialSummary(new Chess());assert.deepEqual(start.lead,{w:0,b:0});assert.equal(Object.values(start.captures.w).reduce((a,b)=>a+b,0),0);
  const queen=new Chess('r3k3/8/8/8/8/8/q7/R2QK3 w - - 0 1');queen.move('Rxa2');
@@ -209,9 +210,9 @@ await check('Capture rows belong to the capturer and net material handles trades
  assert.equal(materialSummary(promotedCapture).captures.w.r,1);assert.equal(materialSummary(promotedCapture).lead.w,9);
  promotedCapture.undo();assert.deepEqual(materialSummary(promotedCapture).lead,{w:0,b:4});assert.equal(materialSummary(promotedCapture).captures.w.r,0);
 });
-const {squareAt,legalMove,previewMove,premoveReady,premoveTargets,boardTargets,boardMove}=require(new URL('lib/board.cjs',build).pathname);
-const {mergeRoom}=require(new URL('lib/room-update.cjs',build).pathname);
-const {parseInfo,classify}=require(new URL('lib/review.cjs',build).pathname);
+const {squareAt,legalMove,previewMove,premoveReady,premoveTargets,boardTargets,boardMove}=require(fileURLToPath(new URL('lib/board.cjs',build)));
+const {mergeRoom}=require(fileURLToPath(new URL('lib/room-update.cjs',build)));
+const {parseInfo,classify}=require(fileURLToPath(new URL('lib/review.cjs',build)));
 await check('Drag coordinates match both orientations and reject off-board drops',()=>{
  assert.equal(squareAt(1,1,800,'w'),'a8');assert.equal(squareAt(799,799,800,'w'),'h1');
  assert.equal(squareAt(1,1,800,'b'),'h1');assert.equal(squareAt(799,799,800,'b'),'a8');
@@ -313,7 +314,7 @@ await check('Duplicate game versions preserve board identity while fresh records
  assert.equal(mergeRoom(update,{me:'one',game:next,serverNow:202}).game,next);
  assert.equal(mergeRoom(update,{me:'one',game:structuredClone(game),serverNow:99}),update);
 });
-const {roomPollDelay}=require(new URL('lib/connection.cjs',build).pathname);
+const {roomPollDelay}=require(fileURLToPath(new URL('lib/connection.cjs',build)));
 await check('Healthy sockets reduce polling without delaying flag checks or fast fallback',()=>{
  let match=transition(createGame('one','two',1,2,1000),'two','accept',{},2000);
  assert.equal(roomPollDelay(match,true,false,2000),5000);
@@ -360,7 +361,7 @@ await check('Gud can replace his long code without changing his identity or char
  const logged=await POST(request({action:'login',pin:'583920'}));assert.equal(logged.status,200);cookieUsman=logged.headers.get('set-cookie').split(';')[0];const room=await logged.json();
  assert.equal(room.me,usman.id);assert.equal(room.players.find(p=>p.id===usman.id).character,'gud');assert.equal(room.stats[usman.id].wins,1);
 });
-const {handleBridge,resultOpening}=require(new URL('lib/server/imessage.cjs',build).pathname);
+const {handleBridge,resultOpening}=require(fileURLToPath(new URL('lib/server/imessage.cjs',build)));
 await check('Group phrases alternate approved win wording, preserve winner order, and use a separate draw pool',()=>{
  const wins=Array.from({length:8},(_,i)=>resultOpening('Usman','Nabeel',false,i+1));
  assert.equal(new Set(wins.slice(0,4)).size,4);
@@ -433,7 +434,7 @@ await check('Draw announcements name the players and update only their pair reco
  let game=await reopened.create('one','two',5,0);
  game=await reopened.act('two','accept',{gameId:game.id,version:game.version});
  game=await reopened.act('one','offerDraw',{gameId:game.id,version:game.version});
- game=await reopened.act('two','acceptDraw',{gameId:game.id,version:game.version});
+ await reopened.act('two','acceptDraw',{gameId:game.id,version:game.version});
  const job=(await (await bridge({action:'claim'})).json()).job;
  assert.equal(job.kind,'result');assert.equal(job.result.winnerId,null);assert.match(job.text,/ drew\./);
  assert.match(job.text,/Nabeel/);assert.match(job.text,/Saif/);assert.doesNotMatch(job.text,/ beat |https?:\/\/|Walan|Gud|Usman/);
@@ -444,7 +445,7 @@ await check('Draw announcements name the players and update only their pair reco
 await check('Usman versus Saif announces the real winner without including their games against Nabeel',async()=>{
  let game=await reopened.create(usman.id,'two',5,0);
  game=await reopened.act('two','accept',{gameId:game.id,version:game.version});
- game=await reopened.act('two','resign',{gameId:game.id,version:game.version});
+ await reopened.act('two','resign',{gameId:game.id,version:game.version});
  const job=(await (await bridge({action:'claim'})).json()).job;
  assert.equal(job.kind,'result');assert.match(job.text,/^Usman (?:gooned on Saif|beat Saif’s ass)/);assert.doesNotMatch(job.text,/Nabeel|Walan|Gud|https?:\/\//);
  const record=(await reopened.room(usman.id)).headToHead.two;
@@ -456,7 +457,7 @@ await check('Usman versus Saif announces the real winner without including their
 });
 
 
-const {handleSpectator}=require(new URL('lib/server/spectator.cjs',build).pathname);
+const {handleSpectator}=require(fileURLToPath(new URL('lib/server/spectator.cjs',build)));
 const spectator=(body,cookie='',suffix='',origin='https://rival.test')=>handleSpectator(new Request('https://rival.test/api/spectate'+suffix,{method:body?'POST':'GET',headers:{Origin:origin,'Content-Type':'application/json',Cookie:cookie,'cf-connecting-ip':'spectator-test'},...(body?{body:JSON.stringify(body)}:{})}),env);
 const spectatorCode='092841',replacementCode='829415';let spectatorCookie,spectatorGame;
 const spectatorSalt=sql.prepare('SELECT salt FROM pin_settings WHERE id=1').get().salt;
@@ -632,7 +633,7 @@ await check('Best-of-five remains open at two wins and ends exactly at three',as
  }
  assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM series_seats').get().n,0);
 });
-const {leaderboard,presenceStatus}=require(new URL('lib/club.cjs',build).pathname);
+const {leaderboard,presenceStatus}=require(fileURLToPath(new URL('lib/club.cjs',build)));
 await check('Leaderboards count only finished matches, break streaks on draws, and keep rival records separate',async()=>{
  const players=[{id:'a',name:'A'},{id:'b',name:'B'},{id:'c',name:'C'}];
  const outcomes=[['a','b','a'],['a','b','a'],['a','b',null],['a','c','c'],['a','b','a']].map(([white,black,winner],i)=>({id:String(i),white,black,winner,finishedAt:i}));

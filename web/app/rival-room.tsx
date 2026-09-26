@@ -30,12 +30,17 @@ import { MatchResult, Matchup } from './match-result';
 import { getCharacter } from '@/lib/characters';
 import { BoardPiece, CharacterPortrait } from './character-art';
 const GameReview = lazy(() => import('./game-review'));
-import { pieceName, previewMove, premoveReady, type BoardMove } from '@/lib/board';
+import { parseBoardTheme, pieceName, previewMove, premoveReady, type BoardMove } from '@/lib/board';
+import { FeatureBoundary } from './feature-boundary';
+import { isCancelled } from '@/lib/client-request';
+import { useRequest } from '@/lib/use-request';
+import { usePreference } from '@/lib/use-preference';
 function download(name: string, data: string, type = 'text/plain') { const url = URL.createObjectURL(new Blob([data], { type })); const a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }
 export default function RivalRoom() {
-    const { room, busy, ready, error, online, live, latency, moveLatency, deliverySamples, offset, act } = useRoom();
+    const { room, busy, ready, unavailable, error, online, live, latency, moveLatency, deliverySamples, offset, act, retry } = useRoom();
     const run = useCallback((action: string, details: Record<string, unknown> = {}) => { void act(action, details).catch(() => {}); }, [act]);
     if (!ready) return <main className="loading-room"><span className="brand-mark">♞</span><p>Opening the room…</p></main>;
+    if (!room && unavailable) return <main className="loading-room"><div><h1>Reconnecting to your room.</h1><p role="alert">{error}</p><p>Your session will be checked again when the connection returns.</p><Button onClick={retry}>Try again</Button></div></main>;
     return <>{room ? <Club key={room.me} room={room} busy={busy} online={online} live={live} latency={latency} moveLatency={moveLatency} deliverySamples={deliverySamples} offset={offset} act={act} run={run}/> : <Entry onEnter={pin => run('login', { pin })} busy={busy} error={error}/>}<Toaster theme="dark" richColors position="bottom-center"/></>;
 }
 export function Club({ room, busy, online, live, latency, moveLatency, deliverySamples, offset, act, run }: {
@@ -50,6 +55,7 @@ export function Club({ room, busy, online, live, latency, moveLatency, deliveryS
     act: (action: string, details?: Record<string, unknown>) => Promise<Room>;
     run: (action: string, details?: Record<string, unknown>) => void;
 }) {
+    const request = useRequest();
     const [minutes, setMinutes] = useState('5'), [increment, setIncrement] = useState(false), [flip, setFlip] = useState(false), [promotion, setPromotion] = useState<{
         from: Square;
         to: Square;
@@ -59,9 +65,8 @@ export function Club({ room, busy, online, live, latency, moveLatency, deliveryS
     const activeSeries=room.series?.status==='active'?room.series:null;
     const [boardHelp, setBoardHelp] = useState(false);
     const [watching, setWatching] = useState(false);
-    const [boardTheme, setBoardTheme] = useState('characters');
-    useEffect(() => { try { const saved = localStorage.getItem('rival-board-theme'); if (saved && ['characters', 'classic', 'slate'].includes(saved)) setBoardTheme(saved); } catch {} }, []);
-    function changeBoardTheme(theme: string) { setBoardTheme(theme); try { localStorage.setItem('rival-board-theme', theme); } catch {} }
+    const [storedTheme, changeBoardTheme] = usePreference('rival-board-theme','characters');
+    const boardTheme = parseBoardTheme(storedTheme);
     const [reviewGame, setReviewGame] = useState<Game | null>(null);
     const { me } = room;
     const characterOf = (id: PlayerId) => room.players.find(p => p.id === id)?.character;
@@ -73,16 +78,23 @@ export function Club({ room, busy, online, live, latency, moveLatency, deliveryS
     }, [character]);
     const [selectedRival, setSelectedRival] = useState('');
     const playing = room.game && ['pending', 'active'].includes(room.game.status);
-    // Dismiss the watch board immediately when a challenge or game arrives.
-    if (playing && watching) setWatching(false);
+    const [incomingGame, setIncomingGame] = useState<string | null>(playing ? room.game!.id : null);
+    const arrival = playing ? room.game!.id : null;
+    if (arrival !== incomingGame) {
+        setIncomingGame(arrival);
+        if (arrival) {
+            setTab('game'); setWatching(false); setPractice(false); setReviewGame(null);
+            setHistoryGame(null); setSettings(false); setBoardHelp(false); setConfirm(false);
+        }
+    }
     const lastRival = room.game ? opponent(me, room.game) : '';
     const rival = activeSeries ? seriesRival(activeSeries,me) : playing ? lastRival : room.players.some(p => p.id === selectedRival && p.id !== me) ? selectedRival : lastRival || room.players.find(p => p.id !== me)?.id || '';
     const serverGame = room.game && lastRival === rival ? room.game : null;
     const [optimistic, setOptimistic] = useState<{ base: number; game: Game } | null>(null);
     const [premove, setPremove] = useState<(BoardMove & { gameId: string }) | null>(null);
-    const queued = useRef<typeof premove>(null);
+    const sentPremove = useRef<typeof premove>(null);
     const g = optimistic && serverGame?.id === optimistic.game.id && serverGame.version === optimistic.base ? optimistic.game : serverGame;
-    const cancelPremove = useCallback(() => { queued.current = null; setPremove(null); }, []);
+    const cancelPremove = useCallback(() => setPremove(null), []);
     const who = (p: PlayerId) => room.players.find(x => x.id === p)?.name || 'Player';
     const pair = room.headToHead[rival] || { wins: 0, losses: 0, draws: 0 };
     const board = useMemo(() => new Chess(g?.fen), [g?.fen]);
@@ -93,9 +105,12 @@ export function Club({ room, busy, online, live, latency, moveLatency, deliveryS
     const { lastMove, material } = useMemo(() => {
         const position = g ? replay(g) : new Chess();
         return { lastMove: position.history({ verbose: true }).at(-1) || null, material: materialSummary(position) };
-    }, [g?.moves.length, g?.id, g?.fen]);
-    useEffect(() => { cancelPremove(); setPromotion(null); setOptimistic(null); }, [serverGame?.id, me, cancelPremove]);
-    useEffect(() => { if (!online || serverGame?.status !== 'active') { cancelPremove(); setPromotion(null); } }, [online, serverGame?.status, cancelPremove]);
+    }, [g]);
+    const positionContext = `${serverGame?.id || ''}:${serverGame?.status || ''}:${online}`;
+    const [previousContext, setPreviousContext] = useState(positionContext);
+    if (positionContext !== previousContext) {
+        setPreviousContext(positionContext); setPremove(null); setPromotion(null); setOptimistic(null);
+    }
     const submit = useCallback((move: BoardMove) => {
         if (!serverGame || busy || !online) return;
         try { setOptimistic({ base: serverGame.version, game: previewMove(serverGame, me, move, Date.now() + offset) }); }
@@ -103,17 +118,21 @@ export function Club({ room, busy, online, live, latency, moveLatency, deliveryS
         void act('move', move).catch(() => {}).finally(() => setOptimistic(null));
     }, [serverGame, me, busy, online, offset, act]);
     useEffect(() => {
-        const next = queued.current;
-        if (!next || !serverGame || busy || !online || serverGame.status !== 'active') return;
+        const next = premove;
+        if (!next || sentPremove.current === next || !serverGame || busy || !online || serverGame.status !== 'active') return;
         if ((serverGame.fen.split(' ')[1] === 'w' ? serverGame.white : serverGame.black) !== me) return;
+        sentPremove.current = next;
+        // The authoritative position is an external game event. Consume its
+        // queued reply after commit; submitting during render would be unsafe.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         cancelPremove();
         if (premoveReady(serverGame, me, next)) submit(next);
         else toast('Premove cancelled: it is no longer legal.');
-    }, [serverGame, me, busy, online, submit, cancelPremove]);
+    }, [serverGame, me, busy, online, submit, cancelPremove, premove]);
     const move = useCallback((from: Square, to: Square, promotion?: BoardMove['promotion']) => {
         if (!g || !online || !active) return;
         const intent: BoardMove = { from, to, ...(promotion ? { promotion } : {}) };
-        if (!myTurn) { const next = { ...intent, gameId: g.id }; queued.current = next; setPremove(next); }
+        if (!myTurn) setPremove({ ...intent, gameId: g.id });
         else { cancelPremove(); submit(intent); }
     }, [g, online, active, myTurn, cancelPremove, submit]);
     const chooseMove = useCallback((from: Square, to: Square) => {
@@ -158,14 +177,12 @@ export function Club({ room, busy, online, live, latency, moveLatency, deliveryS
         toast.error('Copy the link from your browser’s address bar.');
     } }
     async function exportAll() { try {
-        const r = await fetch('/api/room?export=all', { cache: 'no-store' });
-        if (!r.ok)
-            throw new Error();
-        download('rival-room-backup.json', JSON.stringify(await r.json(), null, 2), 'application/json');
+        const backup = await request<unknown>('/api/room?export=all');
+        download('rival-room-backup.json', JSON.stringify(backup, null, 2), 'application/json');
         toast.success('Your record has been exported.');
     }
-    catch {
-        toast.error('Could not export right now. Please try again.');
+    catch (error) {
+        if (!isCancelled(error)) toast.error((error as Error).message);
     } }
     const lower = orientation === 'w' ? (g?.white || me) : (g?.black || rival);
     const upper = lower === me ? rival : me;
@@ -177,7 +194,7 @@ export function Club({ room, busy, online, live, latency, moveLatency, deliveryS
             <CapturedMaterial color={color} name={who(id)} material={material}/>
         </div>;
     }
-    let status = !g ? 'The board is yours.' : g.status === 'pending' ? (g.challenger === me ? 'Challenge sent.' : 'You’ve been challenged.') : g.status === 'active' ? (myTurn ? (board.isCheck() ? 'You’re in check.' : 'Your move.') : `${who(rival)}’s move.`) : g.status === 'finished' ? (g.winner === me ? 'Bragging rights: yours.' : g.winner ? 'They got this one.' : 'Evenly matched.') : 'Ready for the next one?';
+    const status = !g ? 'The board is yours.' : g.status === 'pending' ? (g.challenger === me ? 'Challenge sent.' : 'You’ve been challenged.') : g.status === 'active' ? (myTurn ? (board.isCheck() ? 'You’re in check.' : 'Your move.') : `${who(rival)}’s move.`) : g.status === 'finished' ? (g.winner === me ? 'Bragging rights: yours.' : g.winner ? 'They got this one.' : 'Evenly matched.') : 'Ready for the next one?';
     return <main className={`club ${active ? 'game-active' : ''}`} data-board-theme={boardTheme}><header className="club-header"><div className="club-identity"><CharacterPortrait character={characterOf(me)} name={who(me)} className="identity-portrait"/><div><div className="brand"><span className="brand-mark">♞</span> RIVAL ROOM <span className="private-badge"><LockKeyhole size={11}/> INVITE ONLY</span></div><p className="signed-in-player">You are <strong>{who(me)}</strong></p></div></div><div className="header-actions"><ConnectionMeter online={online} live={live} latency={latency} moveLatency={moveLatency} deliverySamples={deliverySamples}/><Button className="watch-games-button" aria-label="Watch games" title={playing ? "Finish your game or challenge before watching" : "Watch your rivals play"} variant="outline" disabled={!!playing} onClick={() => setWatching(true)}><Eye size={16}/><span>Watch games</span></Button><Button aria-label="Invite your rival" variant="outline" onClick={share}><Link2 size={15}/><span>{copied ? 'Copied' : 'Invite your rival'}</span></Button><Button aria-label="Room settings" size="icon" variant="ghost" onClick={() => { setName(who(me)); setSettings(true); }}><Settings2 /></Button></div></header>
  <section className="club-title"><div><p className="eyebrow">THE RIVALRY CONTINUES</p><h1>{status}</h1></div><div className="score-chip" aria-label={`${who(me)} ${pair.wins} wins, ${who(rival)} ${pair.losses} wins, ${pair.draws} draws`}><Trophy size={17}/><div className="score-player"><span>{who(me)}</span><b>{pair.wins}</b></div><span>—</span><div className="score-player"><span>{who(rival)}</span><b>{pair.losses}</b></div><small>HEAD-TO-HEAD</small></div></section>
  {!online && <p role="alert" className="connection-warning">Connection interrupted. Clocks keep running. Your board will reconnect automatically.</p>}
@@ -190,7 +207,7 @@ export function Club({ room, busy, online, live, latency, moveLatency, deliveryS
                 <div className="panel-section"><div className="live-heading"><span className="live-label"><i /> IN PLAY</span><span>{g.minutes} + {g.increment}</span></div><h2>{myTurn ? 'Your turn.' : 'Their turn.'}</h2><p className="panel-copy">{board.isCheck() ? 'The king is in check.' : 'Keep your eye on the clock.'}</p><MoveList moves={g.moves}/>{g.drawOffer && <div className="draw-notice">{g.drawOffer === me ? <p>Draw offered. Waiting for your rival.</p> : <><p>Your rival offered a draw.</p><Button disabled={busy || !online} onClick={() => run('acceptDraw')}>Accept draw</Button><Button variant="ghost" disabled={busy || !online} onClick={() => run('declineDraw')}>Decline</Button></>}</div>}<div className="game-actions"><Button variant="outline" disabled={busy || !online || !!g.drawOffer} onClick={() => run('offerDraw')}><Handshake size={15}/>Draw</Button><Button variant="outline" disabled={busy || !online} onClick={() => setConfirm(true)}><Flag size={15}/>Resign</Button></div></div>}
 
  <div className="rivalry-strip"><span className="eyebrow">THE HEAD-TO-HEAD</span><div><b>{who(me)}</b><strong>{pair.wins}<span> : </span>{pair.losses}</strong><b>{who(rival)}</b></div><p>{pair.draws} drawn · {pair.wins + pair.losses + pair.draws} games against each other</p></div>
- </TabsContent><TabsContent value="club"><Suspense fallback={<p className="panel-section">Opening the club…</p>}><ClubHub me={me} playing={!!playing || !!activeSeries} onChallenge={id=>{setSelectedRival(id);setTab('game');}} onPractice={()=>setPractice(true)}/></Suspense></TabsContent><TabsContent value="record"><div className="panel-section"><p className="eyebrow">BRAGGING RIGHTS, IN WRITING</p><h2>Your record.</h2><p className="panel-copy">All your games, across every rival.</p><div className="stat-grid">{(['wins', 'losses', 'draws'] as const).map(k => <div key={k}><strong>{room.stats[me][k]}</strong><span>{k}</span></div>)}</div><div className="history-heading"><span>RECENT GAMES</span><Button variant="ghost" size="sm" onClick={exportAll}><Download size={13}/>Export all</Button></div>{room.recent.length === 0 ? <div className="empty-history"><Trophy size={28}/><h3>A clean scorecard.</h3><p>Your first finished game starts the story.</p></div> : <div className="history-list">{room.recent.map(h => <button className="history-row" key={h.id} onClick={() => setHistoryGame(h)}><span className={`result-letter ${h.winner === me ? 'win' : !h.winner ? 'draw' : 'loss'}`}>{h.winner === me ? 'W' : !h.winner ? 'D' : 'L'}</span><div><strong>{h.winner === me ? 'You won' : !h.winner ? 'Draw' : `${who(opponent(me, h))} won`}</strong><span>vs. {who(opponent(me, h))} · {h.minutes}+{h.increment} · {h.reason}</span></div><ChevronRight size={15}/></button>)}</div>}<p className="panel-note">Your totals include every game you finished. Showing your latest 20. Cancelled challenges don’t count.</p></div></TabsContent></Tabs></aside></div>
+ </TabsContent><TabsContent value="club"><FeatureBoundary name="The club" onDismiss={() => setTab('game')}><Suspense fallback={<p className="panel-section">Opening the club…</p>}><ClubHub me={me} playing={!!playing || !!activeSeries} onChallenge={id=>{setSelectedRival(id);setTab('game');}} onPractice={()=>setPractice(true)}/></Suspense></FeatureBoundary></TabsContent><TabsContent value="record"><div className="panel-section"><p className="eyebrow">BRAGGING RIGHTS, IN WRITING</p><h2>Your record.</h2><p className="panel-copy">All your games, across every rival.</p><div className="stat-grid">{(['wins', 'losses', 'draws'] as const).map(k => <div key={k}><strong>{room.stats[me][k]}</strong><span>{k}</span></div>)}</div><div className="history-heading"><span>RECENT GAMES</span><Button variant="ghost" size="sm" onClick={exportAll}><Download size={13}/>Export all</Button></div>{room.recent.length === 0 ? <div className="empty-history"><Trophy size={28}/><h3>A clean scorecard.</h3><p>Your first finished game starts the story.</p></div> : <div className="history-list">{room.recent.map(h => <button className="history-row" key={h.id} onClick={() => setHistoryGame(h)}><span className={`result-letter ${h.winner === me ? 'win' : !h.winner ? 'draw' : 'loss'}`}>{h.winner === me ? 'W' : !h.winner ? 'D' : 'L'}</span><div><strong>{h.winner === me ? 'You won' : !h.winner ? 'Draw' : `${who(opponent(me, h))} won`}</strong><span>vs. {who(opponent(me, h))} · {h.minutes}+{h.increment} · {h.reason}</span></div><ChevronRight size={15}/></button>)}</div>}<p className="panel-note">Your totals include every game you finished. Showing your latest 20. Cancelled challenges don’t count.</p></div></TabsContent></Tabs></aside></div>
  <footer><span>RIVAL ROOM · YOUR PRIVATE CLUB</span><span>{character ? 'Your character. Your record.' : 'One board. A lasting rivalry.'}</span></footer>
  <Dialog open={boardHelp} onOpenChange={setBoardHelp}><DialogContent><DialogHeader><DialogTitle>Board controls</DialogTitle><DialogDescription>Drag a piece, or tap it and then its destination.</DialogDescription></DialogHeader><div className="board-help"><h3>Castling</h3><p>Move your king two squares toward a rook, or tap your king and then that rook. You can also drag the king onto the rook.</p><p>The path must be clear. Neither piece can have moved, and your king cannot castle out of, through, or into check.</p><h3>Premoves</h3><p>On your rival’s turn, choose your next move the same way. You can queue captures, including a recapture onto a square your own piece still occupies. It plays only if it is legal after their move; otherwise it cancels. Use Cancel below the board to clear it.</p></div></DialogContent></Dialog>
  <Dialog open={!!promotion} onOpenChange={open => { if (!open)
@@ -200,9 +217,9 @@ export function Club({ room, busy, online, live, latency, moveLatency, deliveryS
  <Dialog open={settings} onOpenChange={setSettings}><DialogContent className="room-settings-dialog"><DialogHeader><DialogTitle>Your seat at the table</DialogTitle><DialogDescription>Your personal PIN identifies your player, whichever color you play. Keep it to yourself.</DialogDescription></DialogHeader><Label htmlFor="display-name">Your display name</Label><Input id="display-name" value={name} onChange={e => setName(e.target.value)} maxLength={24}/><Button disabled={busy || !name.trim()} onClick={() => { void act('rename', { name }).then(() => { setSettings(false); toast.success('Name updated.'); }).catch(() => { }); }}>Save name</Button><div className="board-appearance"><p>Board style</p><div className="board-theme-options" role="group" aria-label="Board style">{[['characters', 'Characters'], ['classic', 'Classic'], ['slate', 'Slate']].map(([value, label]) => <button key={value} type="button" aria-pressed={boardTheme === value} onClick={() => changeBoardTheme(value)}><span className="theme-swatch" data-theme={value} aria-hidden="true"/>{label}</button>)}</div></div><div className="sound-settings"><div><Label htmlFor="game-sounds">Game sounds</Label><Switch id="game-sounds" checked={sounds.enabled} onCheckedChange={enabled=>sounds.change({enabled,volume:sounds.volume})}/></div><Label htmlFor="sound-volume">Volume · {Math.round(sounds.volume*100)}%</Label><input id="sound-volume" type="range" min="0" max="1" step="0.05" value={sounds.volume} onChange={e=>sounds.change({enabled:sounds.enabled,volume:Number(e.target.value)})}/><Button variant="outline" disabled={!sounds.enabled} onClick={sounds.test}>Test sound</Button><small>Moves, captures, check, game end, and one alert below 10 seconds. Sound starts after you interact with the page.</small></div><InstallApp/><div className="room-rules"><h3>Room rules</h3><p>Threefold repetition and the 50-move rule end games automatically. Clocks keep running if you close the page. A timeout is drawn when the other side has only a king, a single bishop or knight, or bishops on one color.</p><p>Records are saved online. Export a backup whenever you like.</p></div><div className="dialog-actions"><Button variant="outline" onClick={exportAll}><Download size={14}/>Export backup</Button><Button variant="ghost" disabled={busy} onClick={() => { setSettings(false); run('logout'); }}><LogOut size={14}/>Lock room</Button></div></DialogContent></Dialog>
  <Dialog open={!!historyGame} onOpenChange={open => { if (!open)
         setHistoryGame(null); }}><DialogContent><DialogHeader><DialogTitle>{historyGame?.winner ? `${who(historyGame.winner)} won` : 'Draw'}</DialogTitle><DialogDescription>{historyGame?.reason} · {historyGame?.minutes}+{historyGame?.increment} · {historyGame && new Date(historyGame.createdAt).toLocaleDateString()}</DialogDescription></DialogHeader>{historyGame && <><MoveList moves={historyGame.moves}/><Button onClick={() => { setReviewGame(historyGame); setHistoryGame(null); }}>Game review</Button><Button onClick={() => download('rival-room-game.pgn', pgn(historyGame, room.players))}><Download size={15}/>Download game (PGN)</Button></>}</DialogContent></Dialog>
- <Dialog open={watching && !playing} onOpenChange={setWatching}><DialogContent className="watch-dialog" data-board-theme={boardTheme} showCloseButton={false}><DialogHeader className="sr-only"><DialogTitle>Watch live games</DialogTitle><DialogDescription>Watch your rivals without leaving your player account. The board is read-only.</DialogDescription></DialogHeader>{watching && !playing && <Suspense fallback={<div className="watch-loading"><p role="status">Opening live games…</p><Button onClick={() => setWatching(false)}>Back to playing</Button></div>}><SpectatorRoom playerView onClose={() => setWatching(false)}/></Suspense>}</DialogContent></Dialog>
- {practice && !playing && <Suspense fallback={<p role="status">Opening practice…</p>}><PracticeRoom onClose={()=>setPractice(false)}/></Suspense>}
- {reviewGame && !playing && <Suspense fallback={<p role="status">Opening game review…</p>}><GameReview key={reviewGame.id} game={reviewGame} players={room.players} me={me} onClose={() => setReviewGame(null)}/></Suspense>}
+ <Dialog open={watching && !playing} onOpenChange={setWatching}><DialogContent className="watch-dialog" data-board-theme={boardTheme} showCloseButton={false}><DialogHeader className="sr-only"><DialogTitle>Watch live games</DialogTitle><DialogDescription>Watch your rivals without leaving your player account. The board is read-only.</DialogDescription></DialogHeader>{watching && !playing && <FeatureBoundary name="Live games" onDismiss={() => setWatching(false)}><Suspense fallback={<div className="watch-loading"><p role="status">Opening live games…</p><Button onClick={() => setWatching(false)}>Back to playing</Button></div>}><SpectatorRoom playerView onClose={() => setWatching(false)}/></Suspense></FeatureBoundary>}</DialogContent></Dialog>
+ {practice && !playing && <FeatureBoundary name="Practice" onDismiss={() => setPractice(false)}><Suspense fallback={<p role="status">Opening practice…</p>}><PracticeRoom onClose={()=>setPractice(false)}/></Suspense></FeatureBoundary>}
+ {reviewGame && !playing && <FeatureBoundary name="Game review" onDismiss={() => setReviewGame(null)}><Suspense fallback={<p role="status">Opening game review…</p>}><GameReview key={reviewGame.id} game={reviewGame} players={room.players} me={me} onClose={() => setReviewGame(null)}/></Suspense></FeatureBoundary>}
  </main>;
 }
 function MoveList({ moves }: {

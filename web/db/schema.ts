@@ -1,11 +1,11 @@
 import { sql } from 'drizzle-orm';
 import { integer, sqliteTable, text, uniqueIndex, index, check, unique } from 'drizzle-orm/sqlite-core';
-export const players = sqliteTable('players', { id: text('id').primaryKey(), name: text('name').notNull(), pinHash: text('pin_hash'), character: text('character', { enum: ['walan', 'gud', 'saif'] }) }, t => [uniqueIndex('idx_players_pin').on(t.pinHash), uniqueIndex('idx_players_character').on(t.character)]);
+export const players = sqliteTable('players', { id: text('id').primaryKey(), name: text('name').notNull(), pinHash: text('pin_hash'), legacyPinHash: text('legacy_pin_hash'), authVersion: integer('auth_version').notNull().default(0), character: text('character', { enum: ['walan', 'gud', 'saif'] }) }, t => [uniqueIndex('idx_players_pin').on(t.pinHash), uniqueIndex('idx_players_character').on(t.character)]);
 export const pinSettings = sqliteTable('pin_settings', { id: integer('id').primaryKey(), salt: text('salt').notNull() });
 export const spectatorSettings = sqliteTable('spectator_settings', { id: integer('id').primaryKey(), pinHash: text('pin_hash') });
 export const spectatorSessions = sqliteTable('spectator_sessions', { tokenHash: text('token_hash').primaryKey(), expires: integer('expires').notNull() }, t => [index('idx_spectator_sessions_expiry').on(t.expires)]);
 export const gameSeats = sqliteTable('game_seats', { playerId: text('player_id').primaryKey(), gameId: text('game_id').notNull() }, t => [index('idx_game_seats_game').on(t.gameId)]);
-export const sessions = sqliteTable('sessions', { tokenHash: text('token_hash').primaryKey(), playerId: text('player_id').notNull(), expires: integer('expires').notNull() }, t => [index('idx_sessions_expiry').on(t.expires)]);
+export const sessions = sqliteTable('sessions', { tokenHash: text('token_hash').primaryKey(), playerId: text('player_id').notNull(), expires: integer('expires').notNull() }, t => [index('idx_sessions_expiry').on(t.expires), index('idx_sessions_player').on(t.playerId, t.expires)]);
 export const attempts = sqliteTable('attempts', { key: text('key').primaryKey(), count: integer('count').notNull(), expires: integer('expires').notNull() });
 export const games = sqliteTable('games', { id: text('id').primaryKey(), activeKey: integer('active_key'), state: text('state').notNull(), version: integer('version').notNull(), createdAt: integer('created_at').notNull(), finishedAt: integer('finished_at') }, t => [index('idx_games_active').on(t.activeKey), index('idx_games_finished').on(t.finishedAt)]);
 export const notificationSettings = sqliteTable('notification_settings', { id: integer('id').primaryKey(), enabled: integer('enabled').notNull().default(0) });
@@ -34,3 +34,4 @@ export const practicePuzzles=sqliteTable('practice_puzzles',{
 },t=>[unique('practice_puzzles_player_id_game_id_ply_unique').on(t.playerId,t.gameId,t.ply),index('idx_practice_player').on(t.playerId,t.createdAt)]);
 
 // idx_games_series is a SQL-managed expression index in 0007, alongside the atomic series triggers.
+// 0008 also manages participant expression indexes and credential-generation triggers.

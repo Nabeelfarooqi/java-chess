@@ -1,6 +1,8 @@
 import { Chess, type Square, type Color } from 'chess.js';
 import { clockMs, type Game, type PlayerId } from './game';
 export type BoardMove = { from: Square; to: Square; promotion?: 'q' | 'r' | 'b' | 'n' };
+export type BoardTheme = 'characters' | 'classic' | 'slate';
+export const parseBoardTheme = (value: string): BoardTheme => value === 'classic' || value === 'slate' ? value : 'characters';
 export const glyph = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' };
 export const pieceName = { k: 'king', q: 'queen', r: 'rook', b: 'bishop', n: 'knight', p: 'pawn' };
 export function isCastleGesture(board: Chess, from: Square, to: Square, color: Color): boolean {
@@ -32,6 +34,18 @@ export function squareAt(x: number, y: number, width: number, orientation: Color
     if (width <= 0 || x < 0 || y < 0 || x >= width || y >= width) return null;
     const file = Math.floor(x / width * 8), row = Math.floor(y / width * 8);
     return (orientation === 'w' ? 'abcdefgh'[file] + (8 - row) : 'hgfedcba'[file] + (row + 1)) as Square;
+}
+export function keyboardSquare(square: Square, key: string, orientation: Color, wholeBoard = false): Square | null {
+    let x = square.charCodeAt(0) - 97, y = 8 - Number(square[1]);
+    if (orientation === 'b') { x = 7 - x; y = 7 - y; }
+    if (key === 'ArrowLeft') x--;
+    else if (key === 'ArrowRight') x++;
+    else if (key === 'ArrowUp') y--;
+    else if (key === 'ArrowDown') y++;
+    else if (key === 'Home') { x = 0; if (wholeBoard) y = 0; }
+    else if (key === 'End') { x = 7; if (wholeBoard) y = 7; }
+    else return null;
+    return squareAt(Math.max(0, Math.min(7, x)) + .5, Math.max(0, Math.min(7, y)) + .5, 8, orientation);
 }
 // Premoves describe intent. The next authoritative position must pass chess.js before sending.
 export function premoveTargets(board: Chess, from: Square, color: Color): Square[] {

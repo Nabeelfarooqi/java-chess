@@ -9,7 +9,6 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.List;
 import java.util.Map;
@@ -25,16 +24,32 @@ public final class GamePanel extends JPanel {
     private ComputerPlayer.Level level=ComputerPlayer.Level.NORMAL;
     private int selected=-1;
     private long revision;
-    private SwingWorker<Move,Void> worker;
+    private SwingWorker<ComputerPlayer.Decision,Void> worker;
+    private SwingWorker<ChessGame,Void> loadWorker;
+    private SwingWorker<Void,Void> saveWorker;
+    private long fileRevision;
+    public interface FileOperations {
+        ChessGame load(Path path) throws IOException;
+        void save(ChessGame snapshot,Path path,boolean pgn) throws IOException;
+    }
+    private final FileOperations files;
     private final BoardView boardView=new BoardView(this::squareClicked);
     private final JLabel status=new JLabel(),opponent=new JLabel(),material=new JLabel(),hint=new JLabel();
     private final DefaultListModel<String> moves=new DefaultListModel<>();
     private final JList<String> moveList=new JList<>(moves);
     private final JButton undo=new JButton("Take back"),resign=new JButton("Resign"),claim=new JButton("Claim draw"),agree=new JButton("Agree draw");
+    private final JButton save=new JButton("Save game"),export=new JButton("Export PGN"),cancelFile=new JButton("Cancel file");
     private final JProgressBar progress=new JProgressBar();
 
     public GamePanel() {
+        this(new FileOperations(){
+            public ChessGame load(Path path) throws IOException{return ChessGame.load(path);}
+            public void save(ChessGame snapshot,Path path,boolean pgn) throws IOException{if(pgn)snapshot.exportPgn(path);else snapshot.save(path);}
+        });
+    }
+    public GamePanel(FileOperations files) {
         super(new BorderLayout(22,12));setBackground(BG);setBorder(new EmptyBorder(22,22,18,22));
+        this.files=java.util.Objects.requireNonNull(files);
         JPanel heading=new JPanel(new BorderLayout());heading.setOpaque(false);
         JLabel title=new JLabel("JAVA CHESS");title.setForeground(TEXT);title.setFont(new Font(Font.SANS_SERIF,Font.BOLD,25));heading.add(title,BorderLayout.WEST);
         JLabel subtitle=new JLabel("Think ahead.  Make your move.");subtitle.setForeground(MUTED);heading.add(subtitle,BorderLayout.EAST);add(heading,BorderLayout.NORTH);
@@ -54,10 +69,11 @@ public final class GamePanel extends JPanel {
         JPanel bottom=new JPanel();bottom.setLayout(new BoxLayout(bottom,BoxLayout.Y_AXIS));bottom.setOpaque(false);
         JPanel buttons=new JPanel(new GridLayout(0,2,8,8));buttons.setOpaque(false);
         addButton(buttons,new JButton("New game"),this::newGameDialog);addButton(buttons,undo,this::takeBack);
-        addButton(buttons,new JButton("Flip board"),()->{flipped=!flipped;refresh();});addButton(buttons,new JButton("Save game"),this::saveGame);
-        addButton(buttons,new JButton("Load game"),this::loadGame);addButton(buttons,new JButton("Export PGN"),this::exportPgn);
+        addButton(buttons,new JButton("Flip board"),()->{flipped=!flipped;refresh();});addButton(buttons,save,this::saveGame);
+        addButton(buttons,new JButton("Load game"),this::loadGame);addButton(buttons,export,this::exportPgn);
         addButton(buttons,claim,this::claimDraw);addButton(buttons,agree,this::agreeDraw);
         addButton(buttons,resign,this::resign);addButton(buttons,new JButton("How to play"),this::help);
+        addButton(buttons,cancelFile,()->{cancelFileOperations();refresh();startComputer();});
         bottom.add(buttons);bottom.add(Box.createVerticalStrut(12));hint.setForeground(MUTED);hint.setFont(new Font(Font.SANS_SERIF,Font.PLAIN,11));bottom.add(hint);side.add(bottom,BorderLayout.SOUTH);add(side,BorderLayout.EAST);
         JLabel footer=new JLabel("Select a piece to see legal moves  ·  Arrow keys + Enter to move  ·  Esc to clear");footer.setForeground(MUTED);footer.setFont(new Font(Font.SANS_SERIF,Font.PLAIN,12));add(footer,BorderLayout.SOUTH);
         refresh();
@@ -68,7 +84,7 @@ public final class GamePanel extends JPanel {
     private boolean humanTurn(){return !versusComputer || game.board().turn()==human;}
     public void squareClicked(int square) {
         if(square<0){selected=-1;refresh();return;}
-        if(busy || game.isOver() || !humanTurn())return;
+        if(busy || loadWorker!=null || game.isOver() || !humanTurn())return;
         Board b=game.board();
         if(selected==square){selected=-1;refresh();return;}
         if(selected>=0) {
@@ -87,19 +103,25 @@ public final class GamePanel extends JPanel {
         selected=Board.isSide(b.pieceChar(square),b.turn())?square:-1;refresh();
     }
     private void startComputer() {
-        if(!versusComputer || game.isOver() || humanTurn() || busy)return;
-        if(game.canClaimDraw()){game.claimDraw();refresh();return;}
-        List<Move> claims=game.drawClaimMoves();
-        if(!claims.isEmpty()){game.claimDraw(claims.get(0));refresh();return;}
+        if(!versusComputer || game.isOver() || humanTurn() || busy || loadWorker!=null)return;
         final Board snapshot=game.board();final Map<String,Integer> counts=game.repetitionCounts();final long generation=revision;
         final ComputerPlayer.Level strength=level;
         busy=true;refresh();
         worker=new SwingWorker<>() {
-            @Override protected Move doInBackground(){return new ComputerPlayer().choose(snapshot,counts,strength,this::isCancelled);}
+            @Override protected ComputerPlayer.Decision doInBackground(){return new ComputerPlayer().decide(snapshot,counts,strength,this::isCancelled);}
             @Override protected void done() {
                 if(generation!=revision || isCancelled())return;
                 busy=false;worker=null;
-                try {Move move=get();if(move!=null && !game.isOver()){game.play(move);revision++;}}
+                try {
+                    ComputerPlayer.Decision decision=get();
+                    if(decision!=null && !game.isOver()) {
+                        if(decision instanceof ComputerPlayer.Play play)game.play(play.move());
+                        else if(decision instanceof ComputerPlayer.Claim draw) {
+                            if(draw.intended()==null)game.claimDraw();else game.claimDraw(draw.intended());
+                        }
+                        revision++;
+                    }
+                }
                 catch(CancellationException ignored){ }
                 catch(InterruptedException e){Thread.currentThread().interrupt();}
                 catch(ExecutionException | RuntimeException e){showError("The computer could not finish its move. Take back or start a new game.\n"+e.getMessage());}
@@ -108,12 +130,14 @@ public final class GamePanel extends JPanel {
         };
         worker.execute();
     }
-    public void cancelComputer(){revision++;if(worker!=null)worker.cancel(true);worker=null;busy=false;}
+    public void cancelComputer(){revision++;if(worker!=null)worker.cancel(true);worker=null;busy=false;cancelLoad();}
+    private void cancelLoad(){if(loadWorker!=null)loadWorker.cancel(true);loadWorker=null;}
+    public void cancelFileOperations(){if(loadWorker!=null)revision++;fileRevision++;cancelLoad();if(saveWorker!=null)saveWorker.cancel(true);saveWorker=null;}
     private void refresh() {
         Board b=game.board();List<ChessGame.PlayedMove> log=game.history();
         List<Move> legal=selected<0?List.of():b.legalMovesFrom(selected);
         boardView.showPosition(b,selected,legal,log.isEmpty()?null:log.get(log.size()-1).move(),flipped);
-        status.setText("<html>"+(busy?"Computer thinking…":game.status())+"</html>");
+        status.setText("<html>"+(loadWorker!=null?"Loading saved game…":busy?"Computer thinking…":game.status())+"</html>");
         status.setForeground(game.isOver()?ACCENT:TEXT);
         opponent.setText(versusComputer?"You: "+human.label()+"  ·  Computer: "+level:"Local two-player game");
         int white=0,black=0;
@@ -129,9 +153,10 @@ public final class GamePanel extends JPanel {
             moves.addElement(row);
         }
         if(!moves.isEmpty())moveList.ensureIndexIsVisible(moves.size()-1);
-        undo.setEnabled(game.plyCount()>0);resign.setEnabled(!game.isOver());agree.setEnabled(!game.isOver()&&!versusComputer);
-        claim.setEnabled(!busy&&!game.isOver()&&humanTurn()&&(game.canClaimDraw()||!game.drawClaimMoves().isEmpty()));
-        progress.setVisible(busy);hint.setText(game.isOver()?"Result: "+game.result():"Move "+b.fullmoveNumber()+"  ·  "+(versusComputer?"Practice mode":"Pass and play"));
+        undo.setEnabled(game.plyCount()>0);resign.setEnabled(loadWorker==null&&!game.isOver());agree.setEnabled(loadWorker==null&&!game.isOver()&&!versusComputer);
+        claim.setEnabled(!busy&&loadWorker==null&&!game.isOver()&&humanTurn()&&(game.canClaimDraw()||!game.drawClaimMoves().isEmpty()));
+        save.setEnabled(saveWorker==null);export.setEnabled(saveWorker==null);cancelFile.setVisible(loadWorker!=null||saveWorker!=null);
+        progress.setVisible(busy||loadWorker!=null||saveWorker!=null);hint.setText(saveWorker!=null?"Writing saved snapshot…":game.isOver()?"Result: "+game.result():"Move "+b.fullmoveNumber()+"  ·  "+(versusComputer?"Practice mode":"Pass and play"));
     }
     private boolean confirmReplace() {
         return game.plyCount()==0 || JOptionPane.showConfirmDialog(this,"Replace the current game? Save it first if you want to keep it.","Replace game",JOptionPane.YES_NO_OPTION)==JOptionPane.YES_OPTION;
@@ -152,17 +177,22 @@ public final class GamePanel extends JPanel {
         selected=-1;refresh();startComputer();
     }
     private void resign() {
-        if(game.isOver())return;
+        if(loadWorker!=null || game.isOver())return;
+        final ChessGame confirmedGame=game;
         Side side=versusComputer?human:game.board().turn();
         if(JOptionPane.showConfirmDialog(this,side.label()+" resigns this game?","Resign",JOptionPane.YES_NO_OPTION)!=JOptionPane.YES_OPTION)return;
+        if(game!=confirmedGame || loadWorker!=null || game.isOver())return;
         cancelComputer();game.resign(side);selected=-1;refresh();
     }
     private void agreeDraw() {
-        if(versusComputer || game.isOver())return;
-        if(JOptionPane.showConfirmDialog(this,"Do both players agree to a draw?","Draw by agreement",JOptionPane.YES_NO_OPTION)==JOptionPane.YES_OPTION){cancelComputer();game.agreeDraw();selected=-1;refresh();}
+        if(loadWorker!=null || versusComputer || game.isOver())return;
+        final ChessGame confirmedGame=game;
+        if(JOptionPane.showConfirmDialog(this,"Do both players agree to a draw?","Draw by agreement",JOptionPane.YES_NO_OPTION)!=JOptionPane.YES_OPTION)return;
+        if(game!=confirmedGame || loadWorker!=null || versusComputer || game.isOver())return;
+        cancelComputer();game.agreeDraw();selected=-1;refresh();
     }
     private void claimDraw() {
-        if(busy || game.isOver())return;
+        if(busy || loadWorker!=null || game.isOver())return;
         if(game.canClaimDraw())game.claimDraw();
         else {
             List<Move> options=game.drawClaimMoves();if(options.isEmpty())return;
@@ -185,18 +215,49 @@ public final class GamePanel extends JPanel {
     }
     private void saveGame() {
         Path path=savePath("chess","Java Chess saved game");if(path==null)return;
-        try{game.save(path);hint.setText("Saved "+path.getFileName());}catch(IOException e){showError(e.getMessage());}
+        saveTo(path,false);
     }
     private void loadGame() {
         JFileChooser chooser=chooser("chess","Java Chess saved game");if(chooser.showOpenDialog(this)!=JFileChooser.APPROVE_OPTION)return;
-        try {
-            ChessGame loaded=ChessGame.load(chooser.getSelectedFile().toPath());if(!confirmReplace())return;
-            cancelComputer();game=loaded;selected=-1;refresh();startComputer();
-        } catch(IOException e){showError(e.getMessage());}
+        if(confirmReplace())loadFrom(chooser.getSelectedFile().toPath());
     }
     private void exportPgn() {
         Path path=savePath("pgn","Portable Game Notation");if(path==null)return;
-        try{Files.writeString(path,game.pgn(),StandardCharsets.UTF_8);hint.setText("Exported "+path.getFileName());}catch(IOException e){showError(e.getMessage());}
+        saveTo(path,true);
+    }
+    /** Starts an already-confirmed load; file work never runs on Swing's event thread. */
+    public void loadFrom(Path path) {
+        cancelComputer();final long generation=revision;
+        loadWorker=new SwingWorker<>() {
+            protected ChessGame doInBackground() throws IOException{return files.load(path);}
+            protected void done(){
+                if(isCancelled()||generation!=revision)return;
+                loadWorker=null;
+                try{game=get();revision++;selected=-1;}
+                catch(CancellationException ignored){ }
+                catch(InterruptedException e){Thread.currentThread().interrupt();}
+                catch(ExecutionException e){showError("Could not load game: "+e.getCause().getMessage());}
+                refresh();startComputer();
+            }
+        };
+        refresh();loadWorker.execute();
+    }
+    /** Saves a detached snapshot; further moves cannot change the file being written. */
+    public void saveTo(Path path,boolean pgn) {
+        if(saveWorker!=null)return;
+        final ChessGame snapshot=game.snapshot();final long generation=++fileRevision;
+        saveWorker=new SwingWorker<>() {
+            protected Void doInBackground() throws IOException{files.save(snapshot,path,pgn);return null;}
+            protected void done(){
+                if(isCancelled()||generation!=fileRevision)return;
+                saveWorker=null;refresh();
+                try{get();hint.setText((pgn?"Exported ":"Saved ")+path.getFileName());}
+                catch(CancellationException ignored){ }
+                catch(InterruptedException e){Thread.currentThread().interrupt();}
+                catch(ExecutionException e){showError("Could not save file: "+e.getCause().getMessage());}
+            }
+        };
+        refresh();saveWorker.execute();
     }
     private void help() {
         JOptionPane.showMessageDialog(this,"Select a piece, then a highlighted square.\n\n"+
@@ -210,11 +271,13 @@ public final class GamePanel extends JPanel {
             "• New game switches opponent, your color, and computer difficulty.\n\n"+
             "This is an untimed practice game. The built-in computer is a basic opponent.","How to play",JOptionPane.INFORMATION_MESSAGE);
     }
-    private void showError(String text){JOptionPane.showMessageDialog(this,text,"Java Chess",JOptionPane.ERROR_MESSAGE);}
+    private void showError(String text){if(GraphicsEnvironment.isHeadless()){hint.setText(text);return;}JOptionPane.showMessageDialog(this,text,"Java Chess",JOptionPane.ERROR_MESSAGE);}
     // Expose the current board and game for other desktop integrations.
     public BoardView boardView(){return boardView;}
     public ChessGame game(){return game;}
     public boolean isThinking(){return busy;}
+    public boolean isLoading(){return loadWorker!=null;}
+    public boolean isSaving(){return saveWorker!=null;}
     public void startNewGame(boolean computer, Side playerSide, ComputerPlayer.Level strength) {
         cancelComputer();versusComputer=computer;human=playerSide;level=strength;
         game=new ChessGame();selected=-1;flipped=computer&&human==Side.BLACK;refresh();startComputer();

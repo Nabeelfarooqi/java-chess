@@ -14,11 +14,18 @@ export async function sessionPlayer(db: D1Database, req: Request): Promise<Playe
     player_id: PlayerId;
 }>(); return r?.player_id || null; }
 export async function rateLimit(db: D1Database, key: string, limit: number, window: number, now = Date.now()) {
-    const r = await db.prepare('INSERT INTO attempts(key,count,expires) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN expires<=? THEN 1 ELSE count+1 END, expires=CASE WHEN expires<=? THEN ? ELSE expires END RETURNING count').bind(key, now + window, now, now, now + window).first<{
-        count: number;
+    const r = await db.prepare('INSERT INTO attempts(key,count,expires) VALUES (?,1,?) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN expires<=? THEN 1 ELSE count+1 END, expires=CASE WHEN expires<=? THEN ? ELSE expires END RETURNING count,expires').bind(key, now + window, now, now, now + window).first<{
+        count: number; expires: number;
     }>();
-    if (!r || r.count > limit)
-        throw new GameError('Too many attempts. Please try again in 15 minutes.', 429);
+    if (!r || r.count > limit) {
+        const seconds = Math.max(1, Math.ceil(((r?.expires ?? now + window) - now) / 1000));
+        throw new RateLimitError(seconds);
+    }
+}
+export class RateLimitError extends GameError {
+    constructor(public retryAfter: number) {
+        super(`Too many attempts. Please try again in ${retryAfter >= 60 ? `${Math.ceil(retryAfter / 60)} minute${retryAfter > 60 ? 's' : ''}` : `${retryAfter} second${retryAfter === 1 ? '' : 's'}`}.`, 429);
+    }
 }
 export async function login(db: D1Database, req: Request, pin: unknown, env: {
     PIN_ONE_HASH?: string;
@@ -29,36 +36,42 @@ export async function login(db: D1Database, req: Request, pin: unknown, env: {
     await rateLimit(db, 'login-global', 50, 15 * 60000);
     if (typeof pin !== 'string' || !/^(\d{6}|\d{8}|\d{12})$/.test(pin))
         throw new GameError('Enter your personal 6-, 8-, or 12-digit access code.', 401);
-    let player: PlayerId | null = null;
+    type Credential = { id: string; pin_hash: string | null; legacy_pin_hash: string | null; auth_version: number };
+    let credential: Credential | null = null;
     if (pin.length === 8) {
-        if (!env.PIN_ONE_HASH || !env.PIN_TWO_HASH)
-            throw new GameError('Room access is not configured yet.', 503);
-        const [one, two] = await Promise.all([verifyPin(pin, env.PIN_ONE_HASH), verifyPin(pin, env.PIN_TWO_HASH)]);
-        player = one ? 'one' : two ? 'two' : null;
-        if (player) {
-            const saved = await db.prepare('SELECT pin_hash FROM players WHERE id=?').bind(player).first<{ pin_hash: string | null }>();
-            if (saved?.pin_hash) player = null; // A chosen PIN replaces this legacy secret for this player.
+        // Capture the database generation BEFORE verification. Persisted legacy
+        // hashes make subsequent rotations independent of a stale Worker secret.
+        const rows = (await db.prepare("SELECT id,pin_hash,legacy_pin_hash,auth_version FROM players WHERE id IN ('one','two')").all<Credential>()).results;
+        let configured = false;
+        for (const row of rows) {
+            if (row.pin_hash) continue;
+            const stored = row.legacy_pin_hash || (row.id === 'one' ? env.PIN_ONE_HASH : env.PIN_TWO_HASH);
+            if (!stored) continue;
+            configured = true;
+            if (await verifyPin(pin, stored)) credential = row;
         }
+        if (!configured && !await db.prepare('SELECT id FROM players WHERE pin_hash IS NOT NULL OR legacy_pin_hash IS NOT NULL LIMIT 1').first())
+            throw new GameError('Room access is not configured yet.', 503);
     } else {
         // Chosen six-digit and generated twelve-digit codes cannot collide with legacy eight-digit PINs.
         // A shared random KDF salt permits one expensive derivation and an indexed lookup.
         const settings = await db.prepare('SELECT salt FROM pin_settings WHERE id=1').first<{ salt: string }>();
         if (settings) {
-            const found = await db.prepare('SELECT id FROM players WHERE pin_hash=?')
-                .bind(await pinHash(pin, settings.salt)).first<{ id: string }>();
-            player = found?.id || null;
+            credential = await db.prepare('SELECT id,pin_hash,legacy_pin_hash,auth_version FROM players WHERE pin_hash=?')
+                .bind(await pinHash(pin, settings.salt)).first<Credential>();
         }
     }
-    if (!player)
+    if (!credential)
         throw new GameError('That code did not match. Try again.', 401);
+    const player = credential.id;
     const token = hex(crypto.getRandomValues(new Uint8Array(32)).buffer);
-    await db.batch([
-        db.prepare('INSERT OR IGNORE INTO players(id,name,character) VALUES (?,?,?)').bind('one', 'Walan', 'walan'),
-        db.prepare('INSERT OR IGNORE INTO players(id,name,character) VALUES (?,?,?)').bind('two', 'Saif', 'saif'),
+    const results = await db.batch([
         db.prepare('DELETE FROM sessions WHERE expires<=?').bind(Date.now()),
         db.prepare('DELETE FROM attempts WHERE expires<=?').bind(Date.now()),
-        db.prepare('INSERT INTO sessions(token_hash,player_id,expires) VALUES (?,?,?)').bind(await digest(token), player, Date.now() + 12 * 60 * 60000)
+        db.prepare('INSERT INTO sessions(token_hash,player_id,expires) SELECT ?,id,? FROM players WHERE id=? AND auth_version=? AND pin_hash IS ? AND legacy_pin_hash IS ? RETURNING player_id')
+            .bind(await digest(token), Date.now() + 12 * 60 * 60000, player, credential.auth_version, credential.pin_hash, credential.legacy_pin_hash)
     ]);
+    if (!results[2].results.length) throw new GameError('Your access code changed. Please sign in again.', 401);
     return { player, token };
 }
 export function sessionCookie(req: Request, token: string) { return `rr_session=${token}; HttpOnly; SameSite=Strict; Path=/;${new URL(req.url).protocol === 'https:' ? ' Secure;' : ''}${token ? '' : ' Max-Age=0;'}`; }

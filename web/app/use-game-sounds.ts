@@ -1,14 +1,17 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { clockMs, type Game } from '@/lib/game';
 import { gameSound, soundNotes, type GameSound } from '@/lib/sounds';
+import { usePreference } from '@/lib/use-preference';
 export function useGameSounds(game:Game|null,me:string,offset:number) {
-    const [enabled,setEnabled]=useState(true),[volume,setVolume]=useState(.35);
-    const context=useRef<AudioContext|null>(null),preferences=useRef({enabled,volume});preferences.current={enabled,volume};
-    const latest=useRef({game,me,offset});latest.current={game,me,offset};
+    const [stored,setStored]=usePreference('rival-sounds','');
+    const {enabled,volume}=useMemo(()=>{try{const saved=JSON.parse(stored);return {enabled:saved.enabled!==false,volume:typeof saved.volume==='number'&&Number.isFinite(saved.volume)?Math.max(0,Math.min(1,saved.volume)):.35};}catch{return {enabled:true,volume:.35};}},[stored]);
+    const context=useRef<AudioContext|null>(null),preferences=useRef({enabled,volume});
+    const latest=useRef({game,me,offset});
+    useEffect(()=>{preferences.current={enabled,volume};},[enabled,volume]);
+    useEffect(()=>{latest.current={game,me,offset};},[game,me,offset]);
     const previous=useRef<Game|null>(null),warned=useRef('');
-    useEffect(()=>{try{const saved=JSON.parse(localStorage.getItem('rival-sounds')||'null');if(saved){setEnabled(saved.enabled!==false);if(typeof saved.volume==='number')setVolume(Math.max(0,Math.min(1,saved.volume)));}}catch{}},[]);
-    const change=useCallback((next:{enabled:boolean;volume:number})=>{setEnabled(next.enabled);setVolume(next.volume);preferences.current=next;try{localStorage.setItem('rival-sounds',JSON.stringify(next));}catch{}},[]);
+    const change=useCallback((next:{enabled:boolean;volume:number})=>{preferences.current=next;setStored(JSON.stringify(next));},[setStored]);
     const unlock=useCallback(()=>{
         const Audio=window.AudioContext||(window as unknown as {webkitAudioContext:typeof AudioContext}).webkitAudioContext;
         if(!Audio)return;

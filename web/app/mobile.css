@@ -1,5 +1,8 @@
 /* Stable artwork and a compact playing surface, including iOS Safari. */
 .chessboard { grid-template-rows: repeat(8, minmax(0, 1fr)); }
+.board-row { display: contents; }
+.square:focus-visible { outline: 3px solid #172fef; outline-offset: -3px; z-index: 5; }
+.chessboard[data-interactive="false"], .chessboard[data-interactive="false"] .square { touch-action: pan-y pinch-zoom; }
 .square { min-height: 0; }
 .piece {
   position: relative;

@@ -38,10 +38,10 @@
 .theme-swatch { width: 30px; height: 18px; border-radius: 4px; background: linear-gradient(90deg, #729769 50%, #b27472 50%); }
 .theme-swatch[data-theme="classic"] { background: linear-gradient(90deg, #f0dec0 50%, #9c7858 50%); }
 .theme-swatch[data-theme="slate"] { background: linear-gradient(90deg, #dce3ea 50%, #697d91 50%); }
-.club[data-board-theme="classic"] .board-column > .board-frame .square.light { background: #f0dec0; }
-.club[data-board-theme="classic"] .board-column > .board-frame .square.dark { background: #9c7858; }
-.club[data-board-theme="slate"] .board-column > .board-frame .square.light { background: #dce3ea; }
-.club[data-board-theme="slate"] .board-column > .board-frame .square.dark { background: #697d91; }
+.board-frame[data-board-theme="classic"] .square.light { background: #f0dec0; }
+.board-frame[data-board-theme="classic"] .square.dark { background: #9c7858; }
+.board-frame[data-board-theme="slate"] .square.light { background: #dce3ea; }
+.board-frame[data-board-theme="slate"] .square.dark { background: #697d91; }
 @media (max-width: 700px) {
   .club-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
   .header-actions { gap: 0; display: grid; grid-template-columns: 44px 44px; }

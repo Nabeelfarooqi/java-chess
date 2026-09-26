@@ -5,9 +5,20 @@ on:
     paths: ["web/**", ".github/workflows/web.yml"]
   pull_request:
     paths: ["web/**", ".github/workflows/web.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: web-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: web
@@ -17,6 +28,16 @@ jobs:
         with:
           node-version: 22
       - run: npx pnpm@11.25.0 install --frozen-lockfile
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
+      - run: npm run verify
+      - run: npx pnpm@11.25.0 audit --audit-level=high
+      - if: runner.os == 'Linux'
+        run: npx playwright install --with-deps chromium webkit
+      - if: runner.os == 'Linux'
+        run: npm run test:browser
+      - uses: actions/upload-artifact@v4
+        if: failure() && runner.os == 'Linux'
+        with:
+          name: browser-failure-evidence
+          path: web/.test-build/playwright
+          include-hidden-files: true
+          retention-days: 7

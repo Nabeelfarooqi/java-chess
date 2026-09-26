@@ -2,6 +2,8 @@
 
 A private chess club that accompanies the Java desktop game. Open the same link, enter your personal code, choose a rival, and play. No user accounts or ChatGPT login are required.
 
+Before releasing an update, use the [release and recovery guide](docs/operations.md) for verification, D1 backup/rehearsal, deployment evidence, PIN migration ordering, and safe iMessage recovery.
+
 ## Change the free workers.dev address
 
 To replace the personal account name in `rival-room.nfarooqi090.workers.dev`, finish any active games and stop the Mac iMessage sender with **Ctrl+C**. From your existing `web` folder:
@@ -136,7 +138,7 @@ If the database already exists, do not create a replacement. Copy `cloudflare.te
 }]
 ```
 
-The deploy script refuses a placeholder database ID. The original two PIN hashes are runtime secrets: `PIN_ONE_HASH` and `PIN_TWO_HASH`. Additional players and chosen six-digit PINs use `players.pin_hash` in D1; see below.
+The deploy script refuses a placeholder database ID. The original two PIN hashes use runtime secrets `PIN_ONE_HASH` and `PIN_TWO_HASH`; after rotation with the updated command, the same salted hashes are also persisted in `players.legacy_pin_hash` in D1. Deploy migration `0008_auth_revision_and_indexes.sql` before rotating them. Additional players and chosen six-digit PINs use `players.pin_hash` in D1; see below.
 
 ## Add Usman (Gud) or another rival
 
@@ -176,7 +178,7 @@ Changing a code preserves that person’s ID, character, active game, and all sc
 
 | Code | Stored in Cloudflare |
 | --- | --- |
-| Walan/Saif’s original eight-digit codes | Worker `rival-room` → Settings → Variables and Secrets: `PIN_ONE_HASH` / `PIN_TWO_HASH` |
+| Walan/Saif’s original eight-digit codes | Worker secrets `PIN_ONE_HASH` / `PIN_TWO_HASH`; updated rotations also persist the salted hashes in D1 `players.legacy_pin_hash` |
 | Additional players’ twelve-digit codes | D1 `rival-room-db` → `players.pin_hash` |
 | Anyone’s chosen six-digit code | D1 `rival-room-db` → `players.pin_hash` |
 | Shared random salt for D1 PINs | D1 `rival-room-db` → `pin_settings` |
@@ -356,6 +358,8 @@ The app uses React, TypeScript, Vinext, chess.js, Cloudflare D1, WebSocket Durab
 | `scripts/prepare-engine.mjs` | Pinned engine assets, integrity checks, and license/source attribution. |
 
 ## Change descriptions
+
+The [reliability audit and change register](../docs/RELIABILITY_AUDIT.md) records implemented corrections, specialist ownership, regression gates, and remaining device/production checks. `npm run verify` runs the local release checks; after installing Chromium and WebKit with `npx playwright install chromium webkit`, `npm run test:browser` exercises an isolated built-app fixture. Stop a running Windows preview before rebuilding its `dist` directory.
 
 Feature commits should explain the problem, behavior changed, verification performed, and any deployment steps or limitations. Update this README with changes to controls, setup, architecture, and commands in the same submission. The root README should keep its web companion overview current. Never put access codes, sessions, or deployment credentials in commit messages or documentation.
 

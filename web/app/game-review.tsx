@@ -12,6 +12,8 @@ import { keyMoments, moveLabel, reviewInsight, toUci, variationMoves } from '@/l
 import { useGameReview } from '@/lib/use-game-review';
 import type { EngineMode } from '@/lib/review-assets';
 import type { Game, Player } from '@/lib/game';
+import { isCancelled } from '@/lib/client-request';
+import { useRequest } from '@/lib/use-request';
 
 type Props = { game: Game; players: Player[]; me: string; onClose: () => void };
 type Branch = { base: number; moves: Move[]; step: number; kind: 'try' | 'line' };
@@ -24,6 +26,7 @@ export default function GameReview(props: Props) {
 }
 
 function ReviewWorkspace({ game, players, me, mode, onMode }: Props & { mode: EngineMode; onMode: (mode: EngineMode) => void }) {
+    const request = useRequest();
     const moves = useMemo(() => { const board = new Chess(); return game.moves.map(san => board.move(san)); }, [game.moves]);
     const review = useGameReview(game.id, moves, game.status === 'finished', mode);
     const { rows, evaluations, task, stop } = review;
@@ -54,7 +57,7 @@ function ReviewWorkspace({ game, players, me, mode, onMode }: Props & { mode: En
     const selectPosition = useCallback((ply: number) => select(Math.max(0, ply - 1), ply === 0), [select]);
     useEffect(() => {
         const keydown = (e: KeyboardEvent) => {
-            if (e.altKey || e.ctrlKey || e.metaKey || branch || !moves.length || (e.target instanceof HTMLElement && (e.target.matches('input,select,textarea,button') || e.target.isContentEditable))) return;
+            if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || branch || !moves.length || (e.target instanceof HTMLElement && (e.target.matches('input,select,textarea,button') || e.target.isContentEditable))) return;
             const next = e.key === 'ArrowLeft' ? position - 1 : e.key === 'ArrowRight' ? position + 1 : e.key === 'Home' ? 0 : e.key === 'End' ? moves.length : null;
             if (next !== null) { e.preventDefault(); selectPosition(Math.max(0, Math.min(moves.length, next))); }
         };
@@ -80,11 +83,11 @@ function ReviewWorkspace({ game, players, me, mode, onMode }: Props & { mode: En
         const items = rows.flatMap((row, ply) => row && row.move.color === myColor && ['Mistake', 'Blunder'].includes(row.quality) ? [{ ply, solution: row.before.best, loss: Math.min(20000, Math.round(row.loss)), depth: row.before.depth }] : []).slice(0, 40);
         if (!items.length) { toast('No reviewed mistakes to save for your side.'); return; }
         setSaving(true);
+        let cancelled = false;
         try {
-            const r = await fetch('/api/room', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'practiceSave', gameId: game.id, items }) });
-            const d = await r.json() as { error?: string; saved: number }; if (!r.ok) throw Error(d.error || 'Could not save practice.');
+            const d = await request<{saved:number}>('/api/room', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'practiceSave', gameId: game.id, items }) });
             toast.success(`${d.saved} positions saved. Open Club → Practice my mistakes.`);
-        } catch (e) { toast.error((e as Error).message); } finally { setSaving(false); }
+        } catch (e) { cancelled = isCancelled(e); if (!cancelled) toast.error((e as Error).message); } finally { if (!cancelled) setSaving(false); }
     }
     const status = review.loading !== null ? `Loading Full engine · ${review.loading}%` : task === 'review' ? `Analyzing · ${review.progress.done}/${review.progress.total || moves.length + 1} positions` : task === 'position' ? 'Comparing three candidate moves…' : task === 'variation' ? 'Analyzing your line…' : finished ? 'Review ready' : 'Review paused';
     return <>

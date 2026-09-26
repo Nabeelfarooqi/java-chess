@@ -40,6 +40,9 @@ export class BlueBubbles {
     if (!response.ok) throw responseFailure(response.status, result);
     if (!result || typeof result !== 'object' || Array.isArray(result)) throw new BlueBubblesError('BlueBubbles returned an unreadable response.');
     if (result.status >= 400 || result.error) throw responseFailure(result.status, result);
+    if (['message/text', 'message/attachment'].includes(path) && (response.status !== 200 || result.status !== 200)) {
+      throw new BlueBubblesError('BlueBubbles returned no final send confirmation; delivery is unconfirmed.');
+    }
     return result.data;
   }
   ping() { return this.request('ping', undefined, 4000); }
@@ -64,9 +67,24 @@ export class BlueBubbles {
     if (typeof date !== 'number' || !Number.isFinite(date) || date <= 0 || Number.isNaN(new Date(date).getTime())) throw new Error('BlueBubbles returned no usable message timestamp.');
     return date;
   }
-  text(chatGuid, message, tempGuid) { return this.request('message/text', { chatGuid, message, tempGuid, method: 'apple-script' }); }
-  image(chatGuid, png, tempGuid) {
+  // The official sendText/sendAttachment routes return a serialized Message
+  // after sendMessageSync/sendAttachmentSync observes it in Messages. This is
+  // a send confirmation, not a recipient read/delivery receipt.
+  // https://github.com/BlueBubblesApp/bluebubbles-server/blob/f2e2286241a7c3b6617a82b37d4afaab4df3a6b9/packages/server/src/server/api/http/api/v1/routers/messageRouter.ts
+  sendReceipt(data, tempGuid) {
+    if (!data || typeof data !== 'object' || Array.isArray(data) ||
+        typeof data.guid !== 'string' || !data.guid.trim() || data.guid.length > 512 ||
+        (data.error != null && data.error !== 0) || data.isFromMe === false ||
+        (data.tempGuid != null && data.tempGuid !== tempGuid)) {
+      throw new BlueBubblesError('BlueBubbles returned no valid send confirmation; delivery is unconfirmed.');
+    }
+    return { guid: data.guid };
+  }
+  async text(chatGuid, message, tempGuid) {
+    return this.sendReceipt(await this.request('message/text', { chatGuid, message, tempGuid, method: 'apple-script' }), tempGuid);
+  }
+  async image(chatGuid, png, tempGuid) {
     const body = new FormData(); body.set('chatGuid', chatGuid); body.set('tempGuid', tempGuid); body.set('method', 'apple-script'); body.set('name', 'rival-room-result.png'); body.set('attachment', new Blob([png], { type: 'image/png' }), 'rival-room-result.png');
-    return this.request('message/attachment', body);
+    return this.sendReceipt(await this.request('message/attachment', body), tempGuid);
   }
 }
