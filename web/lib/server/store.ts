@@ -37,7 +37,12 @@ export class Store {
     async current(me: PlayerId) {
         const r = await this.db.prepare('SELECT state,version FROM games JOIN game_seats ON games.id=game_seats.game_id WHERE game_seats.player_id=?').bind(me).first<Row>();
         if (r) return await this.settle(parse(r));
-        const latest = await this.db.prepare(`SELECT state,version FROM games WHERE ${participant} ORDER BY created_at DESC,rowid DESC LIMIT 1`).bind(me, me).first<Row>();
+        // Each branch uses its participant index; only two candidates are sorted.
+        const latest = await this.db.prepare(`SELECT state,version FROM (
+            SELECT * FROM (SELECT state,version,created_at,rowid AS seq FROM games WHERE json_extract(state,'$.white')=? ORDER BY created_at DESC,rowid DESC LIMIT 1)
+            UNION ALL
+            SELECT * FROM (SELECT state,version,created_at,rowid AS seq FROM games WHERE json_extract(state,'$.black')=? ORDER BY created_at DESC,rowid DESC LIMIT 1)
+        ) ORDER BY created_at DESC,seq DESC LIMIT 1`).bind(me, me).first<Row>();
         return latest ? parse(latest) : null;
     }
     async seriesFor(me: string, game?: Game | null) {
@@ -45,7 +50,18 @@ export class Store {
         const id = seat?.series_id || game?.seriesId;
         return id ? this.db.prepare(`SELECT ${seriesColumns} FROM series WHERE id=? AND (player_one=? OR player_two=?)`).bind(id,me,me).first<Series>() : null;
     }
+    async settleDue(now = Date.now()) {
+        // Bounded progress even if every participant leaves. Seat release and
+        // exactly-once results still go through the existing versioned write.
+        const due = await this.db.prepare(`SELECT state,version FROM games WHERE active_key=1 AND (
+            (json_extract(state,'$.status')='pending' AND created_at+900000<=?) OR
+            (json_extract(state,'$.status')='active' AND json_extract(state,'$.turnAt')+
+                IIF(json_array_length(state,'$.moves')%2=0,json_extract(state,'$.whiteMs'),json_extract(state,'$.blackMs'))<=?)
+        ) ORDER BY created_at LIMIT 64`).bind(now, now).all<Row>();
+        for (const row of due.results) await this.settle(parse(row));
+    }
     async roster(): Promise<Player[]> {
+        await this.settleDue();
         const now = Date.now();
         const rows = await this.db.prepare(`SELECT p.id,p.name,p.character,
             (gs.player_id IS NOT NULL OR ss.player_id IS NOT NULL) AS busy,
@@ -56,11 +72,13 @@ export class Store {
         return rows.results.map(({lastSeen,...p}) => ({...p,busy:!!p.busy,presence:presenceStatus(lastSeen,now)}));
     }
     async club() {
-        const [players, results] = await Promise.all([this.roster(),this.db.prepare(`SELECT id,json_extract(state,'$.white') AS white,json_extract(state,'$.black') AS black,json_extract(state,'$.winner') AS winner,finished_at AS finishedAt FROM games WHERE ${finished}`).all<ResultSummary>()]);
+        const players = await this.roster();
+        const results = await this.db.prepare(`SELECT id,json_extract(state,'$.white') AS white,json_extract(state,'$.black') AS black,json_extract(state,'$.winner') AS winner,finished_at AS finishedAt FROM games WHERE ${finished}`).all<ResultSummary>();
         return {players,leaders:leaderboard(players,results.results)};
     }
     async room(me: PlayerId): Promise<Room> {
         const game = await this.current(me);
+        const players = await this.roster();
         // One D1 round trip for the slower roster/history view; live moves skip this entirely.
         const [history, totals, pairs] = await this.db.batch([
             this.db.prepare(`SELECT state,version FROM games WHERE ${participant} AND ${finished} ORDER BY finished_at DESC,rowid DESC LIMIT 20`).bind(me, me),
@@ -73,7 +91,7 @@ export class Store {
                 SUM(json_extract(state,'$.winner') IS NOT NULL AND json_extract(state,'$.winner')<>?) AS losses,
                 SUM(json_extract(state,'$.winner') IS NULL) AS draws FROM games WHERE ${participant} AND ${finished} GROUP BY rival`).bind(me, me, me, me, me)
         ]);
-        const [players, series] = await Promise.all([this.roster(), this.seriesFor(me, game)]);
+        const series = await this.seriesFor(me, game);
         const recent = (history.results as Row[]).map(parse);
         const stats: Record<string, Score> = Object.fromEntries(players.map(p => [p.id, zero()]));
         for (const t of totals.results as (Score & { player: string })[]) stats[t.player] = { wins: t.wins || 0, losses: t.losses || 0, draws: t.draws || 0 };

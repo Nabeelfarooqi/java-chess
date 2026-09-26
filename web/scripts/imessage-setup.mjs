@@ -7,6 +7,7 @@ import { privateJson, siteOrigin } from './imessage-core.mjs';
 import { question, hidden } from './terminal-input.mjs';
 import { query } from './cloudflare-admin.mjs';
 import { finishConnection } from './imessage-connect-cli.mjs';
+import { acquireProcessLock } from './process-lock.mjs';
 const directory = resolve('.imessage'), path = resolve(directory, 'config.json');
 async function choose(chats, label, optional = false) {
   console.log('\n'+label);
@@ -27,10 +28,12 @@ async function choose(chats, label, optional = false) {
     }
   }
 }
+let release;
 try {
   if (process.platform !== 'darwin' || !process.stdin.isTTY) throw new Error('Run setup interactively on the Mac signed into Messages.');
   if (existsSync(resolve('.cloudflare-subdomain.json')) || existsSync(resolve('.cloudflare-subdomain.lock'))) throw new Error('Finish the address change with npm run cloudflare:subdomain first.');
-  if (existsSync(resolve(directory, 'sender.lock'))) throw new Error('Stop the running sender before changing its destinations.');
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  release = acquireProcessLock(resolve(directory, 'sender.lock'));
   const previous = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null;
   console.log('Open BlueBubbles Server first. This setup reads chat names/participants but sends no messages.');
   const site = siteOrigin(await question('Chess site URL'+(previous ? ' ['+previous.site+']' : '')+': ') || previous?.site || '');
@@ -54,10 +57,12 @@ try {
   if ((await question('Type SAVE to use these destinations: ')) !== 'SAVE') throw new Error('Cancelled. Nothing saved.');
   const bridgeToken = previous?.site === site ? previous.bridgeToken : randomBytes(32).toString('hex');
   const config = { site, blueBubblesUrl, blueBubblesPassword, bridgeToken, targets, groupChatGuid: group.guid,
-    ...(previous?.site === site && previous.journalSite ? { journalSite: previous.journalSite } : {}) };
+    ...(previous?.site === site && previous.journalSite ? { journalSite: previous.journalSite } : {}),
+    ...(previous?.site === site && previous.deployment ? { deployment: previous.deployment } : {}) };
   mkdirSync(directory, { recursive: true, mode: 0o700 }); chmodSync(directory, 0o700);
   // Save credentials before updating Cloudflare so interrupted setup can be rerun safely.
   privateJson(path, config); chmodSync(path, 0o600);
   console.log('Destinations saved on this Mac. If connection verification fails, resume with npm run imessage:connect.');
   await finishConnection(config);
 } catch (error) { console.error(error.message); process.exitCode = 1; }
+finally { release?.(); }

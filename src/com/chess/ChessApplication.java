@@ -18,7 +18,8 @@ public final class ChessApplication {
             frame.addWindowListener(new WindowAdapter(){@Override public void windowClosing(WindowEvent e){
                 if(game.game().plyCount()>0 && !game.game().isOver() && JOptionPane.showConfirmDialog(frame,
                     "Close the game? Save it first if you want to resume later.","Close Java Chess",JOptionPane.YES_NO_OPTION)!=JOptionPane.YES_OPTION)return;
-                game.cancelComputer();frame.dispose();
+                if(game.isSaving() && JOptionPane.showConfirmDialog(frame,"A file is still being saved. Cancel that save and close?","Save in progress",JOptionPane.YES_NO_OPTION)!=JOptionPane.YES_OPTION)return;
+                game.cancelComputer();game.cancelFileOperations();frame.dispose();
             }});
             frame.setContentPane(game);frame.setMinimumSize(new Dimension(880,650));frame.setSize(1050,800);frame.setLocationRelativeTo(null);frame.setVisible(true);
         });

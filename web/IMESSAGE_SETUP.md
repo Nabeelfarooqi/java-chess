@@ -127,6 +127,22 @@ The game works even when the sender is stopped. Finished-game announcements queu
 
 ## Status and interrupted sends
 
+See the [release and recovery guide](docs/operations.md#inspect-and-resolve-imessage-events) for the complete command table, safe handling of uncertain receipts, and stale-lock recovery.
+
+Reconnect now verifies the saved HTTPS origin against the authenticated Cloudflare account, Worker, and deployed D1 binding before changing a secret or enabling notifications. Custom domains must be registered to that Worker's production service. A mismatch stops without a remote mutation; review `cloudflare.local.json` and the saved site instead of repeatedly resetting the bridge token.
+
+Use `npm run imessage:status -- --review` to list all events needing review, including events older than the latest 30, or `npm run imessage:status -- JOB_ID` to inspect one event directly. Stop the sender before a recovery command. Sender, setup, reconnect, address changes and recovery now hold process locks throughout their operation; a dead owner's lock is recovered automatically, while an unverifiable owner stops the command.
+
+After checking Messages, `npm run imessage:retry -- JOB_ID CHOICE` supports these explicit choices:
+
+- `retry`: retry unfinished parts using the existing configuration, preserving confirmed parts.
+- `original`: intentionally retain the chat recorded when this event first sent.
+- `current`: intentionally retarget wholly unconfirmed parts to the configured destination. This is refused if any part was already confirmed; use original, sent, or discard instead.
+- `sent`: record that you verified the event in Messages. Sends nothing.
+- `discard`: stop this event after review. Sends nothing.
+
+Each choice requires typing its uppercase name. Missing or malformed BlueBubbles send confirmations remain uncertain; an HTTP success alone never marks an event sent. A valid confirmation records the message in the Mac's Messages database, not proof that the recipient read it. Text and attachment confirmations follow the [official BlueBubbles send routes](https://github.com/BlueBubblesApp/bluebubbles-server/blob/f2e2286241a7c3b6617a82b37d4afaab4df3a6b9/packages/server/src/server/api/http/api/v1/routers/messageRouter.ts).
+
 From another Terminal window in `web/`:
 
 ```sh
@@ -135,7 +151,7 @@ npm run imessage:status
 
 The latest 30 events show `pending`, `leased` (being processed), `sent`, `skipped`, or `needs_review`. A lease expires after five minutes if the sender stops abruptly. Confirmed texts are journaled locally and are not sent again merely because Cloudflare's acknowledgement failed. Text and selected image parts are journaled separately. A failed image never causes a confirmed text to be sent again. Older text-only journal entries stay text-only; no new image is added retroactively.
 
-Failed sends now print a sanitized reason in the sender Terminal and save it in the status table: HTTP rejection, connection/timeout, an AppleScript error code, or a Messages send code. Raw API error bodies can contain credentials, addresses, and message text, so they are never printed or uploaded. An older generic `needs_review` entry cannot recover its original error; stop the sender, pull the Mac scripts, and review it before a manual retry. This update requires no Cloudflare deployment or repeat setup.
+Failed sends print a sanitized reason in the sender Terminal and save it in the status table: HTTP rejection, connection/timeout, an AppleScript error code, or a Messages send code. Raw API error bodies can contain credentials, addresses, and message text, so they are never printed or uploaded. An older generic `needs_review` entry cannot recover its original error. Deploy the updated Worker before using the new lookup/resolution commands, then update the Mac scripts; repeat setup is not required.
 
 If a challenge is `sent` but the result is `needs_review`, the website queued both events and the group send needs investigation. Open the selected group in Messages and check whether the announcement is present, including among duplicate group threads. For a missing announcement, follow the manual retry below. An AppleScript `-1728` means a selected Messages object could not be found; verify the exact group rather than switching to another FRQ by name. `-1743` indicates Messages automation permission was denied. A timeout leaves delivery uncertain. For a generic HTTP 500 or a repeated failure, inspect BlueBubbles Logs around the attempt; share only the relevant error, with addresses and message text removed. Do not repeatedly requeue an uncertain send.
 
@@ -145,7 +161,7 @@ If an event says `needs_review`, first inspect the intended conversation in Mess
 npm run imessage:retry -- 'PASTE_JOB_ID_HERE'
 ```
 
-Read the prompt and type `RETRY` only after checking. Restart with `npm run imessage:start`. Confirmed parts stay complete; only unconfirmed parts are retried. Leave the event paused if the message already arrived. If the process crashed and left a stale sender lock, run `imessage:start` once and stop it normally before using setup/retry.
+Read the prompt and type `RETRY` only after checking. Restart with `npm run imessage:start`. Confirmed parts stay complete; only unconfirmed parts are retried. If the message already arrived, use the `sent` choice instead. Setup/retry/reconnect can recover a terminated sender's stale lock themselves.
 
 ## Storage and privacy
 

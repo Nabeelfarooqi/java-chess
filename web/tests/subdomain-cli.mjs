@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const directory = mkdtempSync(join(tmpdir(), 'rival-subdomain-cli-'));
 const cli = fileURLToPath(new URL('../scripts/cloudflare-subdomain-cli.mjs', import.meta.url));
@@ -46,7 +46,7 @@ try {
     };
   `);
   const run = (input, env = {}) => {
-    const result = spawnSync(process.execPath, ['--import', join(directory, 'mock.mjs'), cli, 'rivalchess'], { cwd: directory, encoding: 'utf8', input, env: { ...process.env, ...env, CLOUDFLARE_ACCOUNT_ID: '' } });
+    const result = spawnSync(process.execPath, ['--import', pathToFileURL(join(directory, 'mock.mjs')).href, cli, 'rivalchess'], { cwd: directory, encoding: 'utf8', input, env: { ...process.env, ...env, CLOUDFLARE_ACCOUNT_ID: '' } });
     for (const secret of ['fake-bridge-token', 'fake-cloudflare-token', 'fake-secret-must-not-leak']) assert.ok(!(result.stdout+result.stderr).includes(secret));
     return result;
   };
@@ -59,7 +59,8 @@ try {
   assert.equal(waiting.status, 1); assert.equal(read('remote.json').puts, 1);
   assert.ok(existsSync(join(directory, '.cloudflare-subdomain.json')));
   assert.equal(read('.imessage/config.json').journalSite, 'https://rival-room.old-name.workers.dev');
-  assert.equal(statSync(join(directory, '.imessage/config.json')).mode & 0o777, 0o600);
+  // Windows reports DOS permission bits, not the POSIX privacy contract.
+  if (process.platform !== 'win32') assert.equal(statSync(join(directory, '.imessage/config.json')).mode & 0o777, 0o600);
   const resumed = run('');
   assert.equal(resumed.status, 0, resumed.stderr); assert.equal(read('remote.json').puts, 1);
   assert.match(resumed.stdout, /Address updated/); assert.ok(!existsSync(join(directory, '.cloudflare-subdomain.json')));

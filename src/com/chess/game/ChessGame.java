@@ -17,6 +17,7 @@ public final class ChessGame {
         THREEFOLD, FIFTY_MOVE, AGREED, WHITE_RESIGNED, BLACK_RESIGNED
     }
     private final Board initial;
+    private final LocalDate startedOn;
     private Board board;
     private final List<PlayedMove> history = new ArrayList<>();
     private final Map<String,Integer> repetitions = new HashMap<>();
@@ -24,7 +25,9 @@ public final class ChessGame {
     private Move intendedClaim;
 
     public ChessGame() { this(Board.initial()); }
-    public ChessGame(Board initial) {
+    public ChessGame(Board initial) { this(initial,LocalDate.now()); }
+    public ChessGame(Board initial,LocalDate startedOn) {
+        this.startedOn=startedOn;
         this.initial=Objects.requireNonNull(initial);board=initial;
         repetitions.put(board.repetitionKey(),1);adjudicate();
     }
@@ -34,6 +37,12 @@ public final class ChessGame {
     public End end() { return end; }
     public boolean isOver() { return end!=End.NONE; }
     public int plyCount() { return history.size(); }
+    /** Capture on the owning UI thread before background file work. */
+    public ChessGame snapshot() {
+        ChessGame copy=new ChessGame(initial,startedOn);
+        copy.board=board;copy.history.addAll(history);copy.repetitions.clear();copy.repetitions.putAll(repetitions);
+        copy.end=end;copy.intendedClaim=intendedClaim;return copy;
+    }
     public void play(Move move) {
         if(isOver())throw new IllegalStateException("The game is over");
         List<Move> legal=board.legalMoves();
@@ -133,7 +142,7 @@ public final class ChessGame {
     public String notation(Move move) { return notation(board,move,board.play(move),board.legalMoves()); }
     public String pgn() {
         StringBuilder s=new StringBuilder("[Event \"Java Chess\"]\n[Site \"Local\"]\n[Date \"");
-        s.append(LocalDate.now().toString().replace('-','.')).append("\"]\n[Round \"-\"]\n[White \"White\"]\n[Black \"Black\"]\n[Result \"")
+        s.append(startedOn==null?"????.??.??":startedOn.toString().replace('-','.')).append("\"]\n[Round \"-\"]\n[White \"White\"]\n[Black \"Black\"]\n[Result \"")
             .append(result()).append("\"]\n");
         if(!initial.toFen().equals(Board.START_FEN))s.append("[SetUp \"1\"]\n[FEN \"").append(initial.toFen()).append("\"]\n");
         s.append('\n');
@@ -149,22 +158,22 @@ public final class ChessGame {
         Properties p=new Properties();p.setProperty("format","java-chess-1");p.setProperty("initial",initial.toFen());
         p.setProperty("moves",String.join(" ",history.stream().map(m->m.move().uci()).toList()));
         p.setProperty("end",end.name());
+        if(startedOn!=null)p.setProperty("date",startedOn.toString());
         if(intendedClaim!=null)p.setProperty("claimMove",intendedClaim.uci());
-        Path target=path.toAbsolutePath(),temp=Files.createTempFile(target.getParent(),".chess-save-",".tmp");
-        try {
-            try(Writer w=Files.newBufferedWriter(temp,StandardCharsets.UTF_8)){p.store(w,"Java Chess saved game");}
-            try { Files.move(temp,target,StandardCopyOption.REPLACE_EXISTING,StandardCopyOption.ATOMIC_MOVE); }
-            catch(AtomicMoveNotSupportedException e){Files.move(temp,target,StandardCopyOption.REPLACE_EXISTING);}
-        } finally { Files.deleteIfExists(temp); }
+        AtomicFiles.write(path,w->p.store(w,"Java Chess saved game"));
     }
+    public void exportPgn(Path path) throws IOException { AtomicFiles.write(path,pgn()); }
     public static ChessGame load(Path path) throws IOException {
         if(Files.size(path)>1_000_000)throw new IOException("This save file is too large");
-        Properties p=new Properties();try(Reader r=Files.newBufferedReader(path,StandardCharsets.UTF_8)){p.load(r);}
         try {
+            Properties p=new Properties();try(Reader r=Files.newBufferedReader(path,StandardCharsets.UTF_8)){p.load(r);}
             if(!"java-chess-1".equals(p.getProperty("format")))throw new IllegalArgumentException("Unsupported save format");
-            ChessGame game=new ChessGame(Board.fromFen(p.getProperty("initial","")));
+            ChessGame game=new ChessGame(Board.fromFen(p.getProperty("initial","")),p.containsKey("date")?LocalDate.parse(p.getProperty("date")):null);
             String moves=p.getProperty("moves","").trim();
-            if(!moves.isEmpty())for(String m:moves.split("\\s+"))game.play(Move.fromUci(m));
+            if(!moves.isEmpty())for(String m:moves.split("\\s+")) {
+                if(Thread.currentThread().isInterrupted())throw new InterruptedIOException("Loading cancelled");
+                game.play(Move.fromUci(m));
+            }
             End stored=End.valueOf(p.getProperty("end","NONE"));
             if(stored!=game.end) {
                 if(game.isOver())throw new IllegalArgumentException("Save result contradicts the final position");

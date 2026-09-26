@@ -1,4 +1,6 @@
 import { digest } from './auth';
+import { readJson } from './request';
+import { GameError } from '../game';
 import { Store } from './store';
 import { broadcast, type LiveEnv } from './live';
 import type { Game, Player } from '../game';
@@ -59,15 +61,39 @@ export async function handleBridge(req: Request, env: LiveEnv, ctx?: ExecutionCo
     if (!env.IMESSAGE_BRIDGE_HASH || !match || !same(await digest(match[1]), env.IMESSAGE_BRIDGE_HASH)) return json({ error: 'Bridge authorization required' }, 401);
     if (!env.DB) return json({ error: 'Database unavailable' }, 503);
     if (!req.headers.get('content-type')?.startsWith('application/json')) return json({ error: 'JSON required' }, 415);
-    const raw = await req.text(); if (raw.length > 4096) return json({ error: 'Request too large' }, 413);
-    let body: Record<string, unknown>; try { body = JSON.parse(raw); } catch { return json({ error: 'Invalid JSON' }, 400); }
-    if (!body || Array.isArray(body) || typeof body !== 'object') return json({ error: 'Invalid request' }, 400);
+    let body: Record<string, unknown>;
+    try { body = await readJson(req, 4096); }
+    catch (error) { if (error instanceof GameError) return json({ error: error.message }, error.status); throw error; }
     const db = env.DB;
     try {
         if (body.action === 'status') {
             const settings = await db.prepare('SELECT enabled FROM notification_settings WHERE id=1').first();
-            const jobs = (await db.prepare('SELECT id,kind,status,attempts,detail,created_at FROM notification_outbox ORDER BY created_at DESC LIMIT 30').all()).results;
-            return json({ settings, jobs });
+            const fields = 'SELECT id,kind,status,attempts,detail,created_at FROM notification_outbox';
+            if (body.id !== undefined) {
+                if (typeof body.id !== 'string' || !body.id || body.id.length > 100) return json({ error: 'Job ID required' }, 400);
+                const jobs = (await db.prepare(fields+' WHERE id=?').bind(body.id).all()).results;
+                return json({ settings, jobs, nextCursor: null });
+            }
+            if (body.status !== undefined && body.status !== 'needs_review') return json({ error: 'Invalid status filter' }, 400);
+            const limit = body.limit === undefined ? 30 : body.limit;
+            if (!Number.isInteger(limit) || Number(limit) < 1 || Number(limit) > 100) return json({ error: 'Invalid page limit' }, 400);
+            const where: string[] = [], values: (string | number)[] = [];
+            if (body.status) { where.push('status=?'); values.push(String(body.status)); }
+            if (body.cursor !== undefined) {
+                const cursor = body.cursor as { createdAt?: unknown; id?: unknown };
+                if (!cursor || !Number.isSafeInteger(cursor.createdAt) || Number(cursor.createdAt) < 0 || typeof cursor.id !== 'string' || !cursor.id || cursor.id.length > 100) return json({ error: 'Invalid cursor' }, 400);
+                where.push('(created_at<? OR (created_at=? AND id<?))');
+                values.push(Number(cursor.createdAt), Number(cursor.createdAt), cursor.id);
+            }
+            const rows = (await db.prepare(fields+(where.length ? ' WHERE '+where.join(' AND ') : '')+' ORDER BY created_at DESC,id DESC LIMIT ?').bind(...values, Number(limit)+1).all<{ id: string; created_at: number }>()).results;
+            const jobs = rows.slice(0, Number(limit)), last = jobs.at(-1);
+            return json({ settings, jobs, nextCursor: rows.length > Number(limit) && last ? { createdAt: last.created_at, id: last.id } : null });
+        }
+        if (body.action === 'resolve') {
+            if (typeof body.id !== 'string' || !body.id || body.id.length > 100 || !['sent', 'skipped'].includes(String(body.status))) return json({ error: 'Invalid resolution' }, 400);
+            const detail = body.status === 'sent' ? 'Operator verified delivery in Messages' : 'Operator discarded after review';
+            const r = await db.prepare("UPDATE notification_outbox SET status=?,detail=?,lease_token=NULL,lease_until=0 WHERE id=? AND status='needs_review'").bind(body.status, detail, body.id).run();
+            return json({ updated: !!r.meta.changes });
         }
         if (body.action === 'retry') {
             if (typeof body.id !== 'string' || body.id.length > 100) return json({ error: 'Job ID required' }, 400);

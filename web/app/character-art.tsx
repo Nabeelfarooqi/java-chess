@@ -2,6 +2,10 @@ import { memo } from 'react';
 import type { Color, PieceSymbol } from 'chess.js';
 import { getCharacter, type CharacterKey } from '@/lib/characters';
 
+// Same-origin piece SVGs and pre-sized WebP portraits are already optimized
+// build assets; keep native images without requiring an image proxy in Workers.
+/* eslint-disable @next/next/no-img-element */
+
 export const CharacterPortrait = memo(function CharacterPortrait({ character: key, name = '', className = '' }: { character?: CharacterKey | null; name?: string; className?: string }) {
     const character = getCharacter(key);
     return <span className={`character-portrait ${className}`} data-character={character?.key || 'guest'} aria-hidden="true">

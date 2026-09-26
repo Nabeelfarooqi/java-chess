@@ -1,6 +1,7 @@
 import { GameError, type Game, type Player } from '../game';
 import type { SpectatorRoom } from '../spectator';
-import { digest, hex, rateLimit, verifyPin } from './auth';
+import { digest, hex, rateLimit, RateLimitError, verifyPin } from './auth';
+import { readJson } from './request';
 import { broadcast, type LiveEnv } from './live';
 import { Store } from './store';
 
@@ -40,7 +41,7 @@ export async function watchView(db: D1Database, req: Request, env: LiveEnv, ctx?
         const game = await store.get(gameId);
         // Keep the selected board visible when its live game ends, without
         // exposing a club-wide history/export endpoint.
-        if (game?.status === 'finished' && game.white !== viewerId && game.black !== viewerId) selectedGame = game;
+        if (game && ['active', 'finished'].includes(game.status) && game.white !== viewerId && game.black !== viewerId) selectedGame = await store.settle(game);
     }
     return { games, selectedGame, players: roster.results as Player[], serverNow: Date.now() };
 }
@@ -56,12 +57,7 @@ export async function handleSpectator(req: Request, env: LiveEnv, ctx?: Executio
         if (req.method !== 'POST') return json({ error: 'Method not allowed.' }, 405, { Allow: 'GET, POST' });
         if (req.headers.get('origin') !== new URL(req.url).origin) throw new GameError('Use the spectator page to continue.', 403);
         if (!req.headers.get('content-type')?.startsWith('application/json')) throw new GameError('JSON is required.', 415);
-        if (Number(req.headers.get('content-length') || 0) > 1024) throw new GameError('Request is too large.', 413);
-        const raw = await req.text();
-        if (raw.length > 1024) throw new GameError('Request is too large.', 413);
-        let body: Record<string, unknown>;
-        try { body = JSON.parse(raw); } catch { throw new GameError('Invalid request.', 400); }
-        if (!body || typeof body !== 'object' || Array.isArray(body)) throw new GameError('Invalid request.', 400);
+        const body = await readJson(req, 1024);
         if (body.action === 'login') {
             const ip = req.headers.get('cf-connecting-ip') || 'local-preview';
             await rateLimit(db, 'spectator-ip:' + await digest(ip), 8, 15 * 60000);
@@ -71,13 +67,14 @@ export async function handleSpectator(req: Request, env: LiveEnv, ctx?: Executio
             if (!setting?.pin_hash) throw new GameError('Spectator access has not been enabled yet.', 503);
             if (!await verifyPin(body.pin, setting.salt + ':' + setting.pin_hash)) throw new GameError('That spectator code did not match.', 401);
             const token = hex(crypto.getRandomValues(new Uint8Array(32)).buffer);
-            await db.batch([
+            const inserted = await db.batch([
                 db.prepare('DELETE FROM spectator_sessions WHERE expires<=?').bind(Date.now()),
                 // Compare the setting again so rotating a PIN during verification
                 // cannot leave a newly-created session for an old code.
-                db.prepare('INSERT INTO spectator_sessions(token_hash,expires) SELECT ?,? WHERE EXISTS (SELECT 1 FROM spectator_settings WHERE id=1 AND pin_hash=?)')
+                db.prepare('INSERT INTO spectator_sessions(token_hash,expires) SELECT ?,? WHERE EXISTS (SELECT 1 FROM spectator_settings WHERE id=1 AND pin_hash=?) RETURNING token_hash')
                     .bind(await digest(token), Date.now() + 12 * 60 * 60000, setting.pin_hash),
             ]);
+            if (!inserted[1].results.length) throw new GameError('The spectator code changed. Please sign in again.', 401);
             return json({ unlocked: true }, 200, { 'Set-Cookie': cookie(req, token) });
         }
         if (!await spectatorSession(db, req)) return json({ locked: true, error: 'Enter the spectator code.' }, 401);
@@ -87,6 +84,7 @@ export async function handleSpectator(req: Request, env: LiveEnv, ctx?: Executio
         }
         return json({ error: 'Spectator access is read-only.' }, 403);
     } catch (error) {
+        if (error instanceof RateLimitError) return json({ error: error.message }, 429, { 'Retry-After': String(error.retryAfter) });
         if (error instanceof GameError) return json({ error: error.message }, error.status);
         console.error('Spectator request failed', error instanceof Error ? error.message : 'unknown');
         return json({ error: 'Could not load the spectator room. Please try again.' }, 503);

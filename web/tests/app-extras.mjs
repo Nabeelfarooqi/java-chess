@@ -1,3 +1,4 @@
+import {fileURLToPath} from 'node:url';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
@@ -29,5 +30,5 @@ online=false;assert.equal(await (await event('fetch',request)).text(),'offline')
 assert.deepEqual([...cache.keys()].sort(),['/app-icons/180.png','/app-icons/192.png','/app-icons/512.png','/manifest.json','/offline.html'].sort());
 const {prepareAppIcons}=await import('../scripts/prepare-app-icons.mjs');await prepareAppIcons();
 const manifest=JSON.parse(readFileSync(new URL('../public/manifest.json',import.meta.url)));assert.equal(manifest.display,'standalone');assert.equal(manifest.start_url,'/');
-for(const icon of manifest.icons){const size=Number(icon.sizes.split('x')[0]),meta=await sharp(new URL('../public'+icon.src,import.meta.url).pathname).metadata();assert.equal(meta.width,size);assert.equal(meta.height,size);}
+for(const icon of manifest.icons){const size=Number(icon.sizes.split('x')[0]),meta=await sharp(fileURLToPath(new URL('../public'+icon.src,import.meta.url))).metadata();assert.equal(meta.width,size);assert.equal(meta.height,size);}
 console.log('PASS Install/offline behavior: valid generated icons, public-only cache, live network APIs and no stored authenticated pages');

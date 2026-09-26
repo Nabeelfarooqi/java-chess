@@ -68,7 +68,39 @@ const ongoing = engine.analyze([], new Chess().fen(), 250), commandCount = Proto
 await assert.rejects(engine.analyze(['f2f3'], moves[0].after, 250), /already running/);
 assert.equal(ProtocolWorker.last.commands.length, commandCount);
 engine.close(); await assert.rejects(ongoing, /stopped/);
-console.log('PASS MultiPV keeps ranked, deepest exact scores, normalizes Black evaluations, and rejects stopped/failed engine requests');
+engine = new ReviewEngine(); await engine.init();
+const partial = engine.analyzeLines([], new Chess().fen(), 500, 3);
+ProtocolWorker.last.emit('info depth 1 multipv 1 score cp 25 pv e2e4');
+ProtocolWorker.last.emit('info depth 1 multipv 2 score cp 15 pv d2d4');
+ProtocolWorker.last.emit('info depth 1 multipv 3 score cp 10 upperbound pv g1f3');
+ProtocolWorker.last.emit('bestmove e2e4');
+assert.deepEqual((await partial).map(e => e.best), ['e2e4', 'd2d4']);
+engine.close();
+engine = new ReviewEngine(); await engine.init();
+const interrupted = engine.analyzeLines([], new Chess().fen(), 2000, 3);
+for (const line of [
+    'info depth 17 multipv 1 score cp 35 pv e2e4 e7e5',
+    'info depth 17 multipv 2 score cp 30 pv d2d4 d7d5',
+    'info depth 17 multipv 3 score cp 29 pv g1f3 d7d5',
+    // Actual Full engine stop: rank one changes, rank two is only a bound.
+    'info depth 18 multipv 1 score cp 27 pv d2d4 d7d5',
+    'info depth 18 multipv 2 score cp 23 upperbound pv e2e4 e7e5',
+    'info depth 17 multipv 3 score cp 29 pv g1f3 d7d5',
+    'bestmove d2d4 ponder d7d5',
+]) ProtocolWorker.last.emit(line);
+const distinct = await interrupted;
+assert.deepEqual(distinct.map(e => [e.best, e.cp, e.depth]), [['d2d4', 27, 18], ['e2e4', 35, 17], ['g1f3', 29, 17]]);
+assert.equal(new Set(distinct.map(e => e.best)).size, 3);
+for (const candidate of distinct) assert.equal(variationMoves(new Chess().fen(), candidate.pv).length, candidate.pv.length);
+engine.close();
+engine = new ReviewEngine(); await engine.init();
+const missingExact = engine.analyze([], new Chess().fen(), 250);
+ProtocolWorker.last.emit('info depth 3 score cp 25 pv e2e4');
+ProtocolWorker.last.emit('info depth 4 score cp 30 lowerbound pv d2d4');
+ProtocolWorker.last.emit('bestmove d2d4');
+await assert.rejects(missingExact, /No exact evaluation/);
+engine.close();
+console.log('PASS MultiPV preserves the final bestmove and distinct exact alternatives across interrupted iterations, normalizes Black evaluations, and rejects stopped/failed or unscored requests');
 
 if (process.argv.includes('--engines')) {
     const manifest = JSON.parse(await readFile(root + 'public/engine/full-manifest.json', 'utf8'));
@@ -109,22 +141,33 @@ if (process.argv.includes('--engines')) {
         await writeFile(file + '.cjs', await readFile(root + 'public/engine/' + name + '.js'));
         await writeFile(file + '.wasm', mode === 'full' ? reassembled : await readFile(root + 'public/engine/' + name + '.wasm'));
         class ActualWorker {
+            static last;
+            searchLines = [];
             constructor() {
+                ActualWorker.last = this;
                 this.proc = spawn(process.execPath, [file + '.cjs'], { stdio: ['pipe', 'pipe', 'pipe'] });
                 let buffer = '';
-                this.proc.stdout.on('data', chunk => { buffer += chunk; const lines = buffer.split('\n'); buffer = lines.pop(); for (const line of lines) this.onmessage?.({ data: line.trim() }); });
+                this.proc.stdout.on('data', chunk => { buffer += chunk; const lines = buffer.split('\n'); buffer = lines.pop(); for (const line of lines) {
+                    const text = line.trim();
+                    if (/^(info depth|bestmove)/.test(text)) this.searchLines = [...this.searchLines, text].slice(-60);
+                    this.onmessage?.({ data: text });
+                } });
                 this.proc.on('error', () => this.onerror?.());
                 this.proc.stderr.on('data', data => { this.stderr = String(data); });
             }
-            postMessage(command) { this.proc.stdin.write(command + '\n'); }
+            postMessage(command) { if (command.startsWith('go ')) this.searchLines = []; this.proc.stdin.write(command + '\n'); }
             terminate() { this.proc.kill(); }
         }
         globalThis.Worker = ActualWorker;
         const live = new ReviewEngine();
         try {
             await live.init();
-            const top = await live.analyzeLines([], new Chess().fen(), 500, 3);
-            assert.equal(top.length, 3); assert.equal(new Set(top.map(e => e.best)).size, 3);
+            // Match the app's Deepen-this-move budget. Timing can interrupt any
+            // iteration; the deterministic protocol test above covers rank swaps.
+            const top = await live.analyzeLines([], new Chess().fen(), 2000, 3);
+            assert.equal(top.length, 3, `${mode}: expected three exact candidates at the app's 2000ms comparison budget. UCI output:\n${ActualWorker.last.searchLines.join('\n')}`);
+            assert.equal(new Set(top.map(e => e.best)).size, 3, `${mode}: candidates must be distinct: ${JSON.stringify(top)}. UCI output:\n${ActualWorker.last.searchLines.join('\n')}`);
+            assert.equal(top[0].best, ActualWorker.last.searchLines.findLast(line => line.startsWith('bestmove ')).split(' ')[1]);
             for (const candidate of top) assert.ok(new Chess().moves({ verbose: true }).some(m => m.from + m.to === candidate.best));
             const mate = await live.analyze(['f2f3','e7e5','g2g4'], moves[2].after, 600);
             assert.equal(mate.best, 'd8h4'); assert.ok(mate.cp < 0); assert.ok(mate.mate < 0);

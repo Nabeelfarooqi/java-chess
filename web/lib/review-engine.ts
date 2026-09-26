@@ -35,17 +35,41 @@ export class ReviewEngine {
         const board = new Chess(fen);
         if (board.isCheckmate()) return [{ cp: board.turn() === 'w' ? -10000 : 10000, mate: 0, best: '', pv: [], depth: 0 }];
         if (board.isStalemate() || board.isInsufficientMaterial()) return [{ cp: 0, mate: null, best: '', pv: [], depth: 0 }];
-        const candidates = new Map<number, Evaluation>();
         const limit = Math.min(3, Math.max(1, Math.floor(count)));
+        const expected = Math.min(limit, board.moves().length);
+        const candidates = new Map<number, Evaluation>();
+        const byMove = new Map<string, Evaluation>();
+        const iterations = new Map<number, Map<number, Evaluation>>();
+        let complete: Evaluation[] = [], completeDepth = -1, bestMove = '';
         this.worker.postMessage(`setoption name MultiPV value ${limit}`);
         this.worker.postMessage('position startpos' + (moves.length ? ' moves ' + moves.join(' ') : ''));
         await this.wait(`go movetime ${Math.min(10000, Math.max(100, Math.round(ms)))}`, line => line.startsWith('bestmove'), line => {
+            const final = /^bestmove (\S+)/.exec(line);
+            if (final) bestMove = final[1];
             const info = parseInfo(line, board.turn());
             const rank = Number(/\bmultipv (\d+)/.exec(line)?.[1] || 1);
-            if (info && info.pv.length && rank <= limit && (!candidates.has(rank) || info.depth >= candidates.get(rank)!.depth)) candidates.set(rank, info);
+            if (!info?.pv.length || rank < 1 || rank > expected) return;
+            if (!candidates.has(rank) || info.depth >= candidates.get(rank)!.depth) candidates.set(rank, info);
+            if (!byMove.has(info.best) || info.depth >= byMove.get(info.best)!.depth) byMove.set(info.best, info);
+            const iteration = iterations.get(info.depth) || new Map<number, Evaluation>();
+            iteration.set(rank, info); iterations.set(info.depth, iteration);
+            const ordered = [...iteration].sort(([a], [b]) => a - b).map(([, value]) => value);
+            if (info.depth >= completeDepth && ordered.length === expected && new Set(ordered.map(value => value.best)).size === expected) {
+                complete = ordered; completeDepth = info.depth;
+            }
         });
-        if (!candidates.has(1)) throw new Error('No engine evaluation was returned. Please retry.');
-        return [...candidates].sort(([a], [b]) => a - b).map(([, value]) => value);
+        const best = byMove.get(bestMove);
+        if (!best) throw new Error('No exact evaluation for the engine\'s chosen move was returned. Please retry.');
+        // A timed stop can interrupt a MultiPV iteration after a move changes rank.
+        // Keep alternatives from a complete exact iteration, rather than mixing
+        // stale ranks into duplicates. The final bestmove is authoritative and
+        // uses its deepest exact score; each result retains its own search depth.
+        const alternatives = complete.length ? complete : [...candidates].sort(([a], [b]) => a - b).map(([, value]) => value);
+        const result = [best], seen = new Set([best.best]);
+        for (const candidate of alternatives) {
+            if (!seen.has(candidate.best) && result.length < expected) { result.push(candidate); seen.add(candidate.best); }
+        }
+        return result;
     }
     close() { this.closed = true; this.pending?.reject(new Error('Review stopped.')); this.worker.terminate(); }
 }

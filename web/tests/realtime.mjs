@@ -5,14 +5,14 @@ import assert from 'node:assert/strict';
 import { createHash, pbkdf2Sync } from 'node:crypto';
 import { unstable_splitSqlQuery as splitSqlQuery } from 'wrangler';
 const wranglerRequire = createRequire(realpathSync(new URL('../node_modules/wrangler/package.json', import.meta.url)));
-const { Miniflare } = wranglerRequire('miniflare');
+const { Miniflare, convertV4MiniflareOptions } = wranglerRequire('miniflare');
 const { build } = wranglerRequire('esbuild');
 const NodeWebSocket = createRequire(wranglerRequire.resolve('miniflare'))('ws');
 const root = fileURLToPath(new URL('../', import.meta.url));
 mkdirSync(root + '.test-build', { recursive: true });
 await build({entryPoints:[root+'worker.ts'],outfile:root+'.test-build/realtime.mjs',bundle:true,format:'esm',platform:'browser',target:'es2022',external:['cloudflare:workers'],plugins:[{name:'framework-stub',setup(b){b.onResolve({filter:/^vinext\/server\/fetch-handler$/},()=>({path:'framework',namespace:'test'}));b.onLoad({filter:/.*/,namespace:'test'},()=>({contents:'export default {fetch(){return new Response("Not found",{status:404})}}',loader:'js'}));}}]});
 const hash = pin => 'test-salt:' + pbkdf2Sync(pin,'test-salt',100000,32,'sha256').toString('hex');
-const mf = new Miniflare({modules:true,scriptPath:root+'.test-build/realtime.mjs',compatibilityDate:'2026-05-15',compatibilityFlags:['nodejs_compat'],d1Databases:{DB:'live-test'},durableObjects:{LIVE_PLAYERS:{className:'PlayerLive',useSQLite:true}},bindings:{PIN_ONE_HASH:hash('19462850'),PIN_TWO_HASH:hash('60392714')},unsafeEvalBinding:undefined});
+const mf = new Miniflare(convertV4MiniflareOptions({modules:true,scriptPath:root+'.test-build/realtime.mjs',compatibilityDate:'2026-05-15',compatibilityFlags:['nodejs_compat'],d1Databases:{DB:'live-test'},durableObjects:{LIVE_PLAYERS:{className:'PlayerLive',useSQLite:true}},bindings:{PIN_ONE_HASH:hash('19462850'),PIN_TWO_HASH:hash('60392714')},unsafeEvalBinding:undefined}));
 const sockets=[];
 try {
  const db=await mf.getD1Database('DB');
@@ -21,6 +21,10 @@ try {
   await db.batch(statements.map(s=>db.prepare(s)));
  }
  const origin=(await mf.ready).origin;
+ const framed=await mf.dispatchFetch(origin+'/');
+ assert.equal(framed.headers.get('X-Frame-Options'),'DENY');
+ assert.equal(framed.headers.get('Referrer-Policy'),'strict-origin-when-cross-origin');
+ assert.match(framed.headers.get('Content-Security-Policy'),/frame-ancestors 'none'/);
  const post=(body,cookie='')=>mf.dispatchFetch(origin+'/api/room',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',Cookie:cookie},body:JSON.stringify(body)});
  const login=async pin=>{const r=await post({action:'login',pin});assert.equal(r.status,200);return r.headers.get('set-cookie').split(';')[0]};
  const one=await login('19462850'),two=await login('60392714');
@@ -81,5 +85,11 @@ try {
  const seriesResponse=await post({action:'create',rival:'two',minutes:3,increment:2,bestOf:3},fresh);assert.equal(seriesResponse.status,200);
  const seriesRoom=await seriesResponse.json();assert.equal(seriesRoom.series.bestOf,3);assert.equal(seriesRoom.series.version,1);assert.equal(seriesRoom.game.seriesRound,1);
  const cancelled=await post({action:'cancel',gameId:seriesRoom.game.id,version:0},two);assert.equal((await cancelled.json()).series.status,'cancelled');
+ for(let i=0;i<8;i++)await connect(fresh);
+ assert.equal((await mf.dispatchFetch(origin+'/api/live',{headers:{Upgrade:'websocket',Origin:origin,Cookie:fresh}})).status,429);
+ assert.equal((await post({action:'logout'},fresh)).status,200);
+ const replacement=await login('19462850');
+ await connect(replacement);
+ console.log('PASS Eight valid sockets enforce the cap; revoking all eight permits a fresh session without waiting for a game broadcast');
  console.log('PASS Real Workers runtime: authenticated WebSockets, origin isolation, challenge/move delivery, compact snapshots, display receipts with replay protection, presence, atomic series, spectator isolation and session revocation');
 } finally { for(const ws of sockets)try{ws.close()}catch{};await mf.dispose(); }

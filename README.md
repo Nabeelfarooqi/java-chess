@@ -54,6 +54,8 @@ Maven is optional for command-line builds: `mvn test` runs the regression runner
 - **Resign** ends the game. **Agree draw** is available in local two-player mode.
 - **Claim draw** becomes available for threefold repetition or the 50-move rule, including a claim based on an intended next move. Fivefold repetition and the 75-move rule are automatic; checkmate has precedence.
 - **Save game** writes a `.chess` file with the starting position, legal move history, and result. **Load game** replays and validates it. Loading retains your current opponent/color/difficulty settings; use New game first to choose different settings if needed.
+- File loading, saving, and PGN export run in the background. Saves capture the position when requested; later moves do not change that snapshot. **Cancel file** cancels pending file work, and starting a new game prevents an older load from replacing it. Existing saves remain intact when a temporary-file write fails.
+- New saves preserve the original game date for PGN export. Older saves without a date use the standard unknown date (`????.??.??`) rather than inventing the day the game was played.
 - **Export PGN** writes standard move notation and the result for sharing. PGN import is not implemented; resume games with `.chess` files.
 
 ## What is implemented
@@ -64,6 +66,7 @@ Maven is optional for command-line builds: `mvn test` runs the regression runner
 - Resizable board, move highlighting, move history in algebraic notation, takebacks, resignation, draw agreement, and board flipping.
 - Save/load with legal replay and atomic replacement where the filesystem supports it; PGN export.
 - Cancellable background computer search: iterative deepening, alpha-beta pruning, material/position evaluation, and short capture searches.
+- The computer can choose a current or intended-move draw claim when appropriate, while preferring a found win; claim availability does not force it to abandon a mating move.
 - Easy/Normal/Hard settings (depth caps 1/3/4 with approximately 0.25/1.2/2.5 second search budgets). These are relative practice levels, not Elo ratings or Stockfish-level strength.
 - IntelliJ run configurations, an optional Maven model, offline launch/build scripts, and GitHub Actions checks on Windows/Linux with JDK 17/21.
 

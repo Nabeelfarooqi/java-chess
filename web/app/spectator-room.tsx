@@ -11,6 +11,7 @@ import { CharacterPortrait } from './character-art';
 import { ChessBoard } from './chess-board';
 import { CapturedMaterial } from './captured-material';
 import { PlayerClock } from './player-clock';
+import Link from 'next/link';
 
 const noop = () => {};
 export default function SpectatorRoom({ playerView = false, onClose }: { playerView?: boolean; onClose?: () => void }) {
@@ -72,7 +73,7 @@ export default function SpectatorRoom({ playerView = false, onClose }: { playerV
     const { chess, lastMove, material } = useMemo(() => {
         const chess = game ? replay(game) : new Chess();
         return { chess, lastMove: chess.history({ verbose: true }).at(-1) || null, material: materialSummary(chess) };
-    }, [game?.id, game?.version, game?.fen]);
+    }, [game]);
     const player = (color: Color) => data?.players.find(item => item.id === (color === 'w' ? game?.white : game?.black));
     const who = (id: string) => data?.players.find(item => item.id === id)?.name || 'Player';
     function playerRow(color: Color) {
@@ -86,7 +87,7 @@ export default function SpectatorRoom({ playerView = false, onClose }: { playerV
     }
     if (!ready) return <div className="watch-loading" role="status"><Eye/><p>Loading live games…</p>{playerView && <Button onClick={onClose}>Back to playing</Button>}</div>;
     if (!unlocked && playerView) return <section className="spectator-empty"><Eye size={36}/><h2>{error ? 'Could not load games.' : 'Your session has expired.'}</h2><p>{error || 'Return to the room and enter your player PIN again.'}</p><Button onClick={onClose}>Back to playing</Button></section>;
-    if (!unlocked) return <main className="spectator-gate"><a className="spectator-back" href="/">← Player sign-in</a><Eye size={34}/><h1>Watch the rivalry.</h1><p>Enter the shared spectator code to watch live games.</p>
+    if (!unlocked) return <main className="spectator-gate"><Link className="spectator-back" href="/">← Player sign-in</Link><Eye size={34}/><h1>Watch the rivalry.</h1><p>Enter the shared spectator code to watch live games.</p>
         <form className="gate" onSubmit={event => { event.preventDefault(); void access('login'); }}><label htmlFor="spectator-code">Spectator PIN</label><div className="code-row"><Input id="spectator-code" type="password" inputMode="numeric" autoComplete="off" placeholder="6-digit spectator code" maxLength={6} value={pin} onChange={event => setPin(event.target.value.replace(/\D/g, ''))}/><Button disabled={busy || pin.length !== 6} type="submit">{busy ? 'Opening…' : 'Watch games'}</Button></div>{error && <p className="error" role="alert">{error}</p>}<p className="muted">Watch only. Player PINs are used on the player sign-in page.</p></form>
     </main>;
     return <Container className={`club spectator-club ${game?.status === 'active' ? 'game-active' : ''}`}>
@@ -101,6 +102,6 @@ export default function SpectatorRoom({ playerView = false, onClose }: { playerV
             <ChessBoard whiteCharacter={player('w')?.character} blackCharacter={player('b')?.character} fen={game.fen} orientation={orientation} color={orientation} active={false} canMove={false} online={online} lastMove={lastMove} premove={null} onMove={noop} onCancel={noop}/>
             {playerRow(orientation)}<div className="board-tools"><span className="board-status" role="status">{game.status === 'finished' ? `${game.winner ? who(game.winner) + ' won' : 'Draw'} · ${game.reason}` : `${player(chess.turn())?.name || 'Player'}’s turn${chess.isCheck() ? ' · Check' : ''}`}</span><div className="board-buttons"><Button variant="ghost" size="icon" aria-label="Flip board" onClick={() => setOrientation(orientation === 'w' ? 'b' : 'w')}><ArrowDownUp size={18}/></Button></div></div>
         </section> : <section className="spectator-empty"><Eye size={36}/><h2>{playerView ? 'No rivals playing right now.' : 'No games in progress.'}</h2><p>A game will appear here once both players start playing.</p></section>}
-        {!playerView && <footer><a href="/">Back to playing</a><span>RIVAL ROOM · SPECTATOR</span></footer>}
+        {!playerView && <footer><Link href="/">Back to playing</Link><span>RIVAL ROOM · SPECTATOR</span></footer>}
     </Container>;
 }

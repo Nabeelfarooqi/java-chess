@@ -1,25 +1,17 @@
-import { existsSync, readFileSync, unlinkSync, openSync, closeSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { question } from './terminal-input.mjs';
 import { cloudBridge, privateJson } from './imessage-core.mjs';
 import { changeSubdomain, dnsLabel, workerOrigin } from './cloudflare-subdomain.mjs';
+import { acquireProcessLock } from './process-lock.mjs';
 
 const pendingFile = resolve('.cloudflare-subdomain.json');
 const bridgeFile = resolve('.imessage/config.json');
 const locks = [];
 const readJson = path => JSON.parse(readFileSync(path, 'utf8'));
 function lock(path) {
-  if (existsSync(path)) {
-    const pid = Number(readFileSync(path, 'utf8'));
-    if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('Cannot verify an existing process lock. Stop the sender before changing the address.');
-    try { process.kill(pid, 0); throw new Error('Stop the running sender or address-change command first (Ctrl+C in its Terminal).'); }
-    catch (error) { if (error.code !== 'ESRCH') throw error; }
-    unlinkSync(path);
-  }
-  const fd = openSync(path, 'wx', 0o600);
-  try { writeFileSync(fd, String(process.pid)); } finally { closeSync(fd); }
-  locks.push(path);
+  locks.push(acquireProcessLock(path));
 }
 function wranglerJson(args) {
   const result = spawnSync(process.execPath, [resolve('node_modules/wrangler/bin/wrangler.js'), ...args, '--json'], {
@@ -117,5 +109,5 @@ try {
   if (existsSync(pendingFile)) console.error('Recovery details are saved. If DNS is still updating, wait a minute and rerun the same command.');
   process.exitCode = 1;
 } finally {
-  for (const path of locks.reverse()) try { unlinkSync(path); } catch {}
+  for (const release of locks.reverse()) release();
 }

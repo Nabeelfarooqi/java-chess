@@ -148,7 +148,7 @@ try {
   assert.equal(await deliver(job,config,{bb,post:async body=>acks.push(body),render:async()=>{throw Error('Images are paused')},journal}),'sent');
   assert.deepEqual(calls.map(c=>c.slice(0,2)),[['text',config.groupChatGuid]]);assert.equal(acks[0].status,'sent');
   await deliver({...job,attempts:2},config,{bb,post:async()=>{},render:async()=>{throw Error('must not render again')},journal});assert.equal(calls.length,1);
-  assert.equal(statSync(journal.path(job.id)).mode&0o777,0o600);
+  if(process.platform!=='win32')assert.equal(statSync(journal.path(job.id)).mode&0o777,0o600);
  });
  await check('A challenge goes only to its recipient DM, never to the group',async()=>{
   const calls=[];const challenge={...job,id:'challenge',kind:'challenge',recipientId:'gud'};
@@ -223,19 +223,20 @@ try {
  await check('PIN selectors resolve Usman through his stored Gud identity; private config files are restricted',()=>{
   const players=[{id:'one',name:'Walan',character:'walan'},{id:'two',name:'Saif',character:null},{id:'uuid',name:'Renamed',character:'gud'}];
   assert.equal(findPlayer(players,'Usman').id,'uuid');assert.equal(findPlayer(players,'Saif').id,'two');
-  const file=join(directory,'config.json');privateJson(file,{secret:'test-only'});assert.equal(statSync(file).mode&0o777,0o600);assert.equal(JSON.parse(readFileSync(file,'utf8')).secret,'test-only');
+  const file=join(directory,'config.json');privateJson(file,{secret:'test-only'});if(process.platform!=='win32')assert.equal(statSync(file).mode&0o777,0o600);assert.equal(JSON.parse(readFileSync(file,'utf8')).secret,'test-only');
  });
  await check('Meme pools are opt-in, outcome-specific, future-only, metadata-stripped and locally previewable',async()=>{
   const pool=new MemePool(join(directory,'memes'));await pool.setup();assert.equal((await pool.settings()).enabled,false);
   assert.equal(outcomePool(result,'one'),'loss');assert.equal(outcomePool({...result,winnerId:'one'},'one'),'win');assert.equal(outcomePool({...result,winnerId:null},'one'),'draw');assert.equal(outcomePool(result,'unrelated'),'win');
   const image=await sharp({create:{width:20,height:10,channels:3,background:'red'}}).jpeg().toBuffer();
-  for(const name of ['win','loss','draw'])writeFileSync(join(pool.directory,name,'<chosen>.jpg'),image);
+  // Ampersands exercise HTML escaping while remaining a valid filename on Windows.
+  for(const name of ['win','loss','draw'])writeFileSync(join(pool.directory,name,'chosen & reviewed.jpg'),image);
   assert.equal(await pool.choose({...job,createdAt:Date.now()}),null);await pool.configure(true,'one');
   const enabled=(await pool.settings()).enabledAt;
   assert.equal(await pool.choose({...job,createdAt:enabled-1}),null);assert.equal(await pool.choose({...job,kind:'challenge',createdAt:enabled+1}),null);
   const plan=await pool.choose({...job,createdAt:enabled+1});assert.equal(plan.pool,'loss');assert.deepEqual(await pool.choose({...job,createdAt:enabled+1}),plan);
   const metadata=await sharp(await pool.read(plan)).metadata();assert.equal(metadata.format,'png');assert.equal(metadata.exif,undefined);
-  const preview=await pool.preview();assert.equal(preview.count,3);assert.match(readFileSync(preview.path,'utf8'),/&lt;chosen&gt;/);
+  const preview=await pool.preview();assert.equal(preview.count,3);assert.match(readFileSync(preview.path,'utf8'),/chosen &amp; reviewed/);
   await assert.rejects(pool.read({hash:'../../config',pool:'win'}));
  });
  await check('Result image retries retain the chosen image, never repeat confirmed text, and wait for manual review',async()=>{

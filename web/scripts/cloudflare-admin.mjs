@@ -7,14 +7,16 @@ export function requireConfig() {
   if (!existsSync(configPath)) throw new Error('Run this from your existing web folder after cloudflare:setup.');
   return JSON.parse(readFileSync(configPath, 'utf8'));
 }
-export function wrangler(args, input) {
-  requireConfig();
-  const result = spawnSync(process.execPath, [resolve('node_modules/wrangler/bin/wrangler.js'), ...args, '--config', configPath], { input, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
+export function wrangler(args, input, target) {
+  const config = requireConfig();
+  if (target && JSON.stringify(config) !== JSON.stringify(target.config)) throw new Error('Cloudflare configuration changed after verification. Reconnect again.');
+  const result = spawnSync(process.execPath, [resolve('node_modules/wrangler/bin/wrangler.js'), ...args, '--config', configPath], { input, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024,
+    env: { ...process.env, ...(target ? { CLOUDFLARE_ACCOUNT_ID: target.accountId } : {}), WRANGLER_WRITE_LOGS: 'false', WRANGLER_SEND_METRICS: 'false', WRANGLER_LOG: 'log' } });
   if (result.status !== 0) throw new Error('Cloudflare command failed. Check Wrangler login and deploy the latest migrations first.');
   return result.stdout;
 }
-export function query(command) {
-  const result = JSON.parse(wrangler(['d1', 'execute', 'DB', '--remote', '--json', '--command', command]));
+export function query(command, target) {
+  const result = JSON.parse(wrangler(['d1', 'execute', 'DB', '--remote', '--json', '--command', command], undefined, target));
   if (result.some(item => item.success === false)) throw new Error('The database could not save this change.');
   return result.flatMap(item => item.results || []);
 }

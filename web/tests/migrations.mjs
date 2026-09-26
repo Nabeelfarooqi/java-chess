@@ -73,6 +73,25 @@ try {
   assert.equal(db.prepare('SELECT count(*) AS n FROM game_seats').get().n, 2);
   assert.equal(db.prepare("SELECT count(*) AS n FROM notification_outbox WHERE id='next-round:challenge'").get().n, 1);
   console.log('PASS Single-line triggers keep seat, round, clock and participant guards and accept valid rounds');
+
+  const retained = db.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'").all().map(({name}) => {
+    const columns = db.prepare(`PRAGMA table_info("${name}")`).all().map(row => `"${row.name}"`).join(',');
+    const query = `SELECT ${columns} FROM "${name}" ORDER BY rowid`;
+    return {query, rows: db.prepare(query).all()};
+  });
+  const authMigration = '0008_auth_revision_and_indexes.sql';
+  applyMigration(db, authMigration, source(authMigration));
+  for (const {query, rows} of retained) assert.deepEqual(db.prepare(query).all(), rows);
+  assert.equal(db.prepare("SELECT auth_version FROM players WHERE id='one'").get().auth_version, 0);
+  db.prepare("UPDATE players SET pin_hash='replacement' WHERE id='one'").run();
+  assert.equal(db.prepare("SELECT auth_version FROM players WHERE id='one'").get().auth_version, 1);
+  assert.equal(db.prepare("SELECT count(*) AS n FROM sessions WHERE player_id='one'").get().n, 0);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM spectator_sessions').get().n, 1);
+  assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
+  for (const block of source(authMigration).split('--> statement-breakpoint').filter(sql => sql.includes('CREATE TRIGGER '))) {
+    assert.doesNotMatch(block.slice(block.indexOf('CREATE TRIGGER ')).trim(), /[\r\n]|\bCASE\b/);
+  }
+  console.log('PASS Auth revision upgrade preserves every existing row before rotation, then revokes only the changed player');
 } finally {
   db.close();
 }

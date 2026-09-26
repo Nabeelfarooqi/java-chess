@@ -57,6 +57,13 @@
       "when": 1790093995157,
       "tag": "0007_club_expansion",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1790381598834,
+      "tag": "0008_auth_revision_and_indexes",
+      "breakpoints": true
     }
   ]
 }

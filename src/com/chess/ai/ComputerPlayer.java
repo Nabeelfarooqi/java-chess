@@ -7,6 +7,10 @@ import java.util.function.BooleanSupplier;
 
 /** Small built-in opponent: iterative deepening, alpha-beta, and capture search. */
 public final class ComputerPlayer {
+    public sealed interface Decision permits Play,Claim { }
+    public record Play(Move move) implements Decision { }
+    /** Null intended means a claim on the current position; no move is played. */
+    public record Claim(Move intended) implements Decision { }
     public enum Level {
         EASY("Easy",1,250), NORMAL("Normal",3,1200), HARD("Hard",4,2500);
         final int depth,millis;final String label;
@@ -22,20 +26,30 @@ public final class ComputerPlayer {
         private Stop(){super(null,null,false,false);}
     }
     public Move choose(Board board,Map<String,Integer> history,Level level,BooleanSupplier cancelled) {
+        Decision decision=decide(board,history,level,cancelled);
+        return decision instanceof Play play?play.move():null;
+    }
+    public Decision decide(Board board,Map<String,Integer> history,Level level,BooleanSupplier cancelled) {
         this.cancelled=cancelled;deadline=System.nanoTime()+level.millis*1_000_000L;nodes=0;
         counts.clear();counts.putAll(history);
+        counts.putIfAbsent(board.repetitionKey(),1);
         List<Move> legal=ordered(board,board.legalMoves());
-        if(legal.isEmpty())return null;
-        Move best=legal.get(0);
+        if(legal.isEmpty() || forcedDraw(board) || cancelled.getAsBoolean())return null;
+        Claim claim=drawOption(board,legal);
+        Decision best=claim!=null?claim:new Play(legal.get(0));
         for(int depth=1;depth<=level.depth;depth++) {
             try {
-                Move iterationBest=best;int scoreBest=-INF,alpha=-INF;
-                List<Move> candidates=new ArrayList<>(legal);candidates.remove(best);candidates.add(0,best);
+                Decision iterationBest=claim!=null?claim:best;int scoreBest=claim!=null?0:-INF,alpha=scoreBest;
+                Move previousBest=best instanceof Play play?play.move():legal.get(0);
+                List<Move> candidates=new ArrayList<>(legal);candidates.remove(previousBest);candidates.add(0,previousBest);
                 for(Move move:candidates) {
                     checkTime();Board next=board.applyUnchecked(move);String key=next.repetitionKey();enter(key);
                     int score;
                     try { score=-search(next,depth-1,-INF,-alpha,1); } finally { leave(key); }
-                    if(score>scoreBest){scoreBest=score;iterationBest=move;}
+                    if(score>scoreBest){scoreBest=score;iterationBest=new Play(move);}
+                    // Do not discard an already-proven win if a later root move
+                    // exhausts this iteration's time budget.
+                    if(score>MATE-100)return cancelled.getAsBoolean()?null:new Play(move);
                     alpha=Math.max(alpha,score);
                 }
                 best=iterationBest;
@@ -43,6 +57,20 @@ public final class ComputerPlayer {
             } catch(Stop e){break;}
         }
         return cancelled.getAsBoolean()?null:best;
+    }
+    private boolean forcedDraw(Board board) {
+        return board.insufficientMaterial() || board.halfmoveClock()>=150 || counts.getOrDefault(board.repetitionKey(),0)>=5;
+    }
+    private Claim drawOption(Board board,List<Move> legal) {
+        if(board.halfmoveClock()>=100 || counts.getOrDefault(board.repetitionKey(),0)>=3)return new Claim(null);
+        boolean nearFifty=board.halfmoveClock()>=99;
+        boolean repeated=counts.values().stream().anyMatch(n->n>=2);
+        if(!nearFifty&&!repeated)return null;
+        for(Move move:legal) {
+            Board next=board.applyUnchecked(move);
+            if(next.halfmoveClock()>=100 || (repeated&&counts.getOrDefault(next.repetitionKey(),0)>=2))return new Claim(move);
+        }
+        return null;
     }
     private void enter(String key){counts.merge(key,1,Integer::sum);}
     private void leave(String key){counts.compute(key,(k,n)->n==null||n<=1?null:n-1);}
@@ -53,9 +81,10 @@ public final class ComputerPlayer {
         nodes++;checkTime();
         List<Move> legal=board.legalMoves();
         if(legal.isEmpty())return board.inCheck(board.turn())?-MATE+ply:0;
-        if(board.insufficientMaterial() || board.halfmoveClock()>=100 || counts.getOrDefault(board.repetitionKey(),0)>=3)return 0;
+        if(forcedDraw(board))return 0;
         if(depth<=0)return quiet(board,legal,alpha,beta,ply,4);
-        int best=-INF;
+        int best=drawOption(board,legal)!=null?0:-INF;
+        alpha=Math.max(alpha,best);if(alpha>=beta)return best;
         for(Move move:ordered(board,legal)) {
             Board next=board.applyUnchecked(move);String key=next.repetitionKey();enter(key);
             int score;
@@ -68,7 +97,9 @@ public final class ComputerPlayer {
     private int quiet(Board board,List<Move> legal,int alpha,int beta,int ply,int remaining) {
         checkTime();
         boolean check=board.inCheck(board.turn());
-        int stand=evaluate(board);
+        boolean canClaim=drawOption(board,legal)!=null;
+        if(canClaim){alpha=Math.max(alpha,0);if(alpha>=beta)return 0;}
+        int stand=canClaim?Math.max(0,evaluate(board)):evaluate(board);
         if(remaining<=0)return stand;
         if(!check){if(stand>=beta)return stand;alpha=Math.max(alpha,stand);}
         for(Move move:ordered(board,legal)) {
@@ -78,7 +109,7 @@ public final class ComputerPlayer {
             try {
                 List<Move> replies=next.legalMoves();
                 if(replies.isEmpty())score=next.inCheck(next.turn())?MATE-ply-1:0;
-                else if(next.insufficientMaterial() || next.halfmoveClock()>=100 || counts.getOrDefault(key,0)>=3)score=0;
+                else if(forcedDraw(next))score=0;
                 else score=-quiet(next,replies,-beta,-alpha,ply+1,remaining-1);
             } finally {leave(key);}
             if(score>=beta)return score;

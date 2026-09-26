@@ -1,7 +1,7 @@
 import type { Game } from '../game';
 import { digest, sessionToken } from './auth';
 import type { LiveEnv } from './live';
-type Connection = { player: string; tokenHash: string; expires: number; seen?: {gameId:string;version:number;moveId:string;actor:string;expires:number}[] };
+type Connection = { player: string; tokenHash: string; expires: number; revoked?: boolean; seen?: {gameId:string;version:number;moveId:string;actor:string;expires:number}[] };
 // A hibernating notification hub. D1 remains the sole authority for all moves and results.
 export class PlayerLive {
     constructor(private ctx: DurableObjectState, private env: LiveEnv) {
@@ -50,7 +50,27 @@ export class PlayerLive {
         const tokenHash = await digest(token);
         const session = await this.env.DB.prepare('SELECT player_id,expires FROM sessions WHERE token_hash=? AND expires>?').bind(tokenHash, Date.now()).first<{ player_id: string; expires: number }>();
         if (!session || session.player_id !== req.headers.get('x-player-id')) return new Response('Locked', { status: 401 });
-        if (this.ctx.getWebSockets().length >= 8) return new Response('Too many open tabs', { status: 429 });
+        const existing = this.ctx.getWebSockets();
+        if (existing.length) {
+            const hashes = [...new Set(existing.map(ws => (ws.deserializeAttachment() as Connection).tokenHash))];
+            const valid = (await this.env.DB.prepare(`SELECT token_hash FROM sessions WHERE player_id=? AND expires>? AND token_hash IN (${hashes.map(() => '?').join(',')})`).bind(session.player_id, Date.now(), ...hashes).all<{token_hash:string}>()).results;
+            const allowed = new Set(valid.map(row => row.token_hash));
+            for (const ws of existing) {
+                const attachment = ws.deserializeAttachment() as Connection;
+                if (!allowed.has(attachment.tokenHash) || attachment.expires <= Date.now()) {
+                    // A peer may delay the close handshake. Do not count it again.
+                    attachment.revoked = true;
+                    ws.serializeAttachment(attachment);
+                    try { ws.send(JSON.stringify({ type: 'locked' })); ws.close(4001, 'Session expired'); } catch {}
+                }
+            }
+        }
+        // Re-read after awaiting D1 so concurrent admissions cannot exceed the cap.
+        const open = this.ctx.getWebSockets().filter(ws => {
+            const c = ws.deserializeAttachment() as Connection;
+            return !c.revoked && c.expires > Date.now() && ws.readyState === 1;
+        });
+        if (open.length >= 8) return new Response('Too many open tabs', { status: 429 });
         const pair = new WebSocketPair();
         this.ctx.acceptWebSocket(pair[1]);
         pair[1].serializeAttachment({ player: session.player_id, tokenHash, expires: session.expires } satisfies Connection);

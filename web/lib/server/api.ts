@@ -1,7 +1,8 @@
 import { practiceGET, practicePOST } from './practice';
 import { watchView } from './spectator';
 import { Store } from './store';
-import { digest, login, rateLimit, sessionCookie, sessionPlayer, sessionToken } from './auth';
+import { digest, login, rateLimit, RateLimitError, sessionCookie, sessionPlayer, sessionToken } from './auth';
+import { readJson } from './request';
 import { GameError } from '../game';
 import { broadcast, type LiveEnv } from './live';
 function storeFor(database: D1Database, env: LiveEnv, ctx?: ExecutionContext) {
@@ -11,7 +12,7 @@ const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosnif
 const json = (data: unknown, status = 200, extra: Record<string, string> = {}) => Response.json(data, { status, headers: { ...headers, ...extra } });
 function db(env: LiveEnv) { if (!env.DB)
     throw new GameError('The room is temporarily unavailable. Please try again.', 503); return env.DB; }
-function failure(e: unknown) { if (e instanceof GameError)
+function failure(e: unknown) { if (e instanceof RateLimitError) return json({ error: e.message }, 429, { 'Retry-After': String(e.retryAfter) }); if (e instanceof GameError)
     return json({ error: e.message }, e.status); console.error('Room request failed', e instanceof Error ? e.message : 'unknown'); return json({ error: 'The room could not save that request. Please try again.' }, 503); }
 export async function handleGET(req: Request, env: LiveEnv, ctx?: ExecutionContext) { try {
     const database = db(env);
@@ -21,7 +22,7 @@ export async function handleGET(req: Request, env: LiveEnv, ctx?: ExecutionConte
     if (new URL(req.url).searchParams.get('watch') === '1') return json(await watchView(database, req, env, ctx, me));
     const store = storeFor(database, env, ctx);
     if (new URL(req.url).searchParams.has('club')) return json(await store.club());
-    if (new URL(req.url).searchParams.has('practice')) return json(await practiceGET(database, me));
+    if (new URL(req.url).searchParams.has('practice')) return json(await practiceGET(database, me, new URL(req.url).searchParams.get('cursor')));
     if (new URL(req.url).searchParams.get('live') === '1') return json({ me, game: await store.current(me), serverNow: Date.now() });
     if (new URL(req.url).searchParams.get('export') === 'all')
         return json({ exportedAt: new Date().toISOString(), ...(await store.room(me)), games: await store.export(me), ...(await store.exportClubData(me)) });
@@ -36,20 +37,7 @@ export async function handlePOST(req: Request, env: LiveEnv, ctx?: ExecutionCont
             return json({ error: 'Please use the room page to make changes.' }, 403);
         if (!req.headers.get('content-type')?.startsWith('application/json'))
             return json({ error: 'JSON is required.' }, 415);
-        if (Number(req.headers.get('content-length') || 0) > 16384)
-            return json({ error: 'Request is too large.' }, 413);
-        const raw = await req.text();
-        if (raw.length > 16384)
-            return json({ error: 'Request is too large.' }, 413);
-        let body: Record<string, unknown>;
-        try {
-            body = JSON.parse(raw);
-        }
-        catch {
-            return json({ error: 'Invalid request.' }, 400);
-        }
-        if (!body || typeof body !== 'object' || Array.isArray(body))
-            return json({ error: 'Invalid request.' }, 400);
+        const body = await readJson(req, 16384);
         const database = db(env);
         if (body.action === 'login') {
             const { player, token } = await login(database, req, body.pin, env as unknown as {

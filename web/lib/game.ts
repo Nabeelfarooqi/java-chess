@@ -62,7 +62,14 @@ export function createGame(player: PlayerId, rival: PlayerId, minutes: number, i
     assert([0, 2].includes(increment), 'Choose 0 or 2 seconds of increment.');
     return { id: crypto.randomUUID(), version: 0, status: 'pending', challenger: player, white, black: white === player ? rival : player, minutes, increment, whiteMs: minutes * 60000, blackMs: minutes * 60000, turnAt: 0, createdAt: now, finishedAt: null, moves: [], fen: new Chess().fen(), winner: null, reason: '', drawOffer: null };
 }
-function finish(g: Game, winner: PlayerId | null, reason: string, now: number) { g.status = 'finished'; g.winner = winner; g.reason = reason; g.finishedAt = now; g.drawOffer = null; }
+function finish(g: Game, winner: PlayerId | null, reason: string, now: number) {
+    // Freeze the clock before leaving active status. Move transitions have
+    // already charged their mover and reset turnAt, so this never charges twice.
+    g.whiteMs = clockMs(g, 'w', now);
+    g.blackMs = clockMs(g, 'b', now);
+    g.status = 'finished'; g.winner = winner; g.reason = reason;
+    g.finishedAt = now; g.drawOffer = null;
+}
 // Online-room convention: time is a draw when the non-flagging side has only a king,
 // a lone bishop/knight, or bishops confined to one color. No lag compensation.
 export function hasMatingMaterial(chess: Chess, color: 'w' | 'b') {

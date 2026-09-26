@@ -5,7 +5,7 @@ import { handleGET, handlePOST } from './lib/server/api';
 import { handleSpectator } from './lib/server/spectator';
 import type { LiveEnv } from './lib/server/live';
 export { PlayerLive } from './lib/server/player-live';
-export default {
+const routes = {
     async fetch(req: Request, env: LiveEnv, ctx: ExecutionContext): Promise<Response> {
         const url = new URL(req.url);
         if (url.pathname === '/api/spectate') return handleSpectator(req, env, ctx);
@@ -28,3 +28,18 @@ export default {
         return handler.fetch(req, env, ctx);
     }
 };
+const worker = {
+    async fetch(req: Request, env: LiveEnv, ctx: ExecutionContext): Promise<Response> {
+        const response = await routes.fetch(req, env, ctx);
+        // Preserve the live upgrade object; normal HTML/API responses get the
+        // same framing/referrer policy without restricting engine Workers/WASM.
+        if (response.status === 101) return response;
+        const headers = new Headers(response.headers);
+        headers.set('X-Content-Type-Options', 'nosniff');
+        headers.set('X-Frame-Options', 'DENY');
+        headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+        headers.set('Content-Security-Policy', "frame-ancestors 'none'; base-uri 'self'; object-src 'none'");
+        return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+    }
+};
+export default worker;

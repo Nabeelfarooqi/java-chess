@@ -1,40 +1,41 @@
-import { readFileSync, existsSync, openSync, writeFileSync, closeSync, unlinkSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { MemePool } from './meme-pool.mjs';
 import { BlueBubbles } from './bluebubbles-client.mjs';
 import { Journal, cloudBridge, deliver } from './imessage-core.mjs';
 import { question } from './terminal-input.mjs';
+import { acquireProcessLock } from './process-lock.mjs';
+import { resolveDelivery } from './imessage-recovery.mjs';
 const directory = resolve('.imessage'), configFile = resolve(directory, 'config.json');
-let lockHeld = false;
+let release;
 const lockPath = resolve(directory, 'sender.lock');
 try {
   if (existsSync(resolve('.cloudflare-subdomain.json')) || existsSync(resolve('.cloudflare-subdomain.lock'))) throw new Error('Finish the address change with npm run cloudflare:subdomain before starting or reviewing the sender.');
   if (!existsSync(configFile)) throw new Error('Run npm run imessage:setup first.');
+  const mode = process.argv[2] || 'start';
+  if (mode !== 'status') release = acquireProcessLock(lockPath);
   const config = JSON.parse(readFileSync(configFile, 'utf8')), post = cloudBridge(config);
   const memes = new MemePool(resolve(directory,'memes'));
   const journal = new Journal(resolve(directory, 'journal'), config.journalSite || config.site);
-  const mode = process.argv[2] || 'start';
   if (mode === 'status') {
-    const status = await post({ action: 'status' }); console.log('Notifications '+(status.settings?.enabled ? 'enabled' : 'disabled')); console.table(status.jobs);
+    const id = process.argv[3];
+    const status = await post({ action: 'status', ...(id && id !== '--review' ? { id } : id === '--review' ? { status: 'needs_review' } : {}) });
+    console.log('Notifications '+(status.settings?.enabled ? 'enabled' : 'disabled')); console.table(status.jobs);
+    if (id === '--review') {
+      let cursor = status.nextCursor;
+      while (cursor) { const page = await post({ action: 'status', status: 'needs_review', cursor }); console.table(page.jobs); cursor = page.nextCursor; }
+    } else console.log('Use imessage:status -- --review for all events needing review, or -- JOB_ID for one older event.');
   } else if (mode === 'retry') {
     const id = process.argv[3]; if (!id) throw new Error('Use npm run imessage:retry -- JOB_ID from imessage:status.');
-    if (existsSync(lockPath)) throw new Error('Stop the running sender before reviewing/retrying a message.');
+    const choice = process.argv[4] || 'retry';
+    if (!['retry', 'original', 'current', 'sent', 'discard'].includes(choice)) throw new Error('Use JOB_ID followed by retry, original, current, sent, or discard.');
     console.log('Check the destination in Messages first. Retrying an unconfirmed send can duplicate it.');
-    if ((await question('Type RETRY to resend only unconfirmed parts: ')) !== 'RETRY') throw new Error('Cancelled.');
-    const status = await post({ action: 'status' });
-    if (!status.jobs.some(j => j.id === id && j.status === 'needs_review')) throw new Error('That event is not awaiting review.');
-    const state = journal.get(id);
-    if (state) { for (const part of Object.keys(state.parts)) if (state.parts[part].status !== 'done') delete state.parts[part]; journal.put(id, state); }
-    const result = await post({ action: 'retry', id }); console.log(result.updated ? 'Queued. Start the sender again.' : 'Event changed; check status.');
+    console.log('Resolution: '+choice+'. Original keeps the recorded chat; current deliberately uses the configured destination. Sent/discard sends nothing.');
+    if ((await question('Type '+choice.toUpperCase()+' to confirm this resolution: ')) !== choice.toUpperCase()) throw new Error('Cancelled.');
+    const result = await resolveDelivery(id, choice, config, { post, journal });
+    console.log(result.updated ? (['sent','discard'].includes(choice) ? 'Resolved. No message was sent.' : 'Queued. Start the sender again.') : 'Event changed; check status.');
   } else if (mode === 'start') {
-    if (existsSync(lockPath)) {
-      const pid = Number(readFileSync(lockPath, 'utf8'));
-      let running = false; try { process.kill(pid, 0); running = true; } catch (error) { if (error.code !== 'ESRCH') running = true; }
-      if (running) throw new Error('An iMessage sender is already running.');
-      unlinkSync(lockPath);
-    }
-    const fd = openSync(lockPath, 'wx', 0o600); writeFileSync(fd, String(process.pid)); closeSync(fd); lockHeld = true;
     const bb = new BlueBubbles(config.blueBubblesUrl, config.blueBubblesPassword);
     let stopping = false; for (const signal of ['SIGINT','SIGTERM']) process.on(signal, () => { stopping = true; });
     const awake = process.platform === 'darwin' ? spawn('/usr/bin/caffeinate', ['-i', '-w', String(process.pid)], { stdio: 'ignore' }) : null;
@@ -57,4 +58,4 @@ try {
     }} finally { awake?.kill(); }
   } else throw new Error('Use start, status, or retry.');
 } catch (error) { console.error(error.message); process.exitCode = 1; }
-finally { if (lockHeld) try { unlinkSync(lockPath); } catch {} }
+finally { release?.(); }

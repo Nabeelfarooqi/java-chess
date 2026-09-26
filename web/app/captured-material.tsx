@@ -2,6 +2,9 @@ import type { Color } from 'chess.js';
 import { capturedOrder, type materialSummary } from '@/lib/material';
 import { pieceName } from '@/lib/board';
 
+// These tiny SVG sprites are immutable local assets, not raster LCP images.
+/* eslint-disable @next/next/no-img-element */
+
 export function CapturedMaterial({ color, name, material }: { color: Color; name: string; material: ReturnType<typeof materialSummary> }) {
     const capturedColor = color === 'w' ? 'b' : 'w';
     const groups = capturedOrder.filter(type => material.captures[color][type] > 0);
